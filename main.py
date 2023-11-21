@@ -4,7 +4,7 @@ import logging
 from AutoArima import TrainAutoArima, PredictAutoArima, GetFeaturesInterpretation
 # import utilsTCN
 from waitress import serve
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import data_prep
 import pandas as pd
 import numpy as np
@@ -164,6 +164,8 @@ def receive_data():
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
     
+
+    
     # print(Product_features_json)
     # print(Product_Id_produit_json)
     # print(Product_future_features_json)
@@ -175,12 +177,13 @@ def receive_data():
         # Create a list to store DataFrames : 
         x_future, final_df, target, nb_jours, exogenous = process_data_ARIMA(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
         
-        # results = process_product_ARIMA(x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous)
+        results = process_product_ARIMA(x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous)
 
         # Create a Pool of procedure : (for compiutation)
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(process_product_ARIMA, x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous) for _ in range(len(Product_Id_produit_json))]
-            results = [future.result() for future in futures]
+        # with ThreadPoolExecutor(max_workers=10) as executor:
+        #     print(f'Received len {len(Product_Id_produit_json)}')
+        #     futures = [executor.submit(process_product_ARIMA, x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous) for _ in range(len(Product_Id_produit_json))]
+        #     results = [future.result() for future in futures]
         
         # results = list(executor.map(lambda x: process_product_ARIMA(x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous), [Product_Id_produit_json]))
         print(jsonify(results))
@@ -191,6 +194,11 @@ def receive_data():
 
 if __name__ == '__main__':
     # In the app section directly
-    # with ThreadPoolExecutor(max_workers=50) as executor:
-    #     serve(app, host='0.0.0.0', port=5000)
-    serve(app, host='0.0.0.0', port=5000)
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        executor.map(app.run(debug=True ,host='0.0.0.0', port=5000))
+
+
+    # Might be better for multi processing use : 
+    # with ProcessPoolExecutor(max_workers=50) as executor:
+    #     executor.map(app.run(debug=True ,host='0.0.0.0', port=5000))
+    # # serve(app, host='0.0.0.0', port=5000)
