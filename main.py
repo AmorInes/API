@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify
 import logging
+
+from datetime import datetime
 # test afin  de pouvoir répliquer arima
 from AutoArima import TrainAutoArima, PredictAutoArima, GetFeaturesInterpretation
 # import utilsTCN
@@ -16,7 +18,10 @@ NB_PRIX = 5
 
 #On a desoin de plusieurs version de prepare data
 
-def process_product_ARIMA(x_future, feature_quantite_final ,final_df,target,nb_jours,exogenous) :
+def process_product_ARIMA(x_future,final_df,target,nb_jours,exogenous, feature_quantite_final, product_id) :
+
+    start_time = datetime.now()
+    print(f"Start processing product {product_id} at {start_time}")
 
     #Creat a dictionary which contains all information need
     preds = {}
@@ -82,6 +87,13 @@ def process_product_ARIMA(x_future, feature_quantite_final ,final_df,target,nb_j
         preds_converted['ELASTICITE'] = preds['ELASTICITE'].to_dict()  if isinstance(preds['ELASTICITE'], pd.Series)  else preds['ELASTICITE']
 
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
+
+    preds_converted['OK'] = 1
+    preds_converted['IDProduit'] = product_id
+
+    end_time = datetime.now()
+    print(f"Finished processing product {product_id} at {end_time}")
+
 
     # Convertir le dictionnaire en JSON
     json_output = json.dumps(preds_converted, indent=4)
@@ -175,30 +187,50 @@ def receive_data():
 
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
         # Create a list to store DataFrames : 
-        x_future, final_df, target, nb_jours, exogenous = process_data_ARIMA(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-        
-        results = process_product_ARIMA(x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous)
+
+
+        # x_future, final_df, target, nb_jours, exogenous = process_data_ARIMA(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+        # results = process_product_ARIMA(x_future, final_df, target, nb_jours, exogenous , pd.DataFrame(Product_features_json), Product_Id_produit_json)
+
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            # futures = []
+
+            x_future, final_df, target, nb_jours, exogenous = process_data_ARIMA(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+            results = process_product_ARIMA(x_future, final_df, target, nb_jours, exogenous , pd.DataFrame(Product_features_json), Product_Id_produit_json)
+            # future = executor.submit(process_product_ARIMA, x_future, final_df, target, nb_jours, exogenous, pd.DataFrame(Product_features_json), Product_Id_produit_json)
+            # futures.append(future)
+            # results = [future.result() for future in futures]
+
+            print(jsonify(results))
+            print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
+            return results, 200
+
 
         # Create a Pool of procedure : (for compiutation)
+        # Parallel processing
         # with ThreadPoolExecutor(max_workers=10) as executor:
-        #     print(f'Received len {len(Product_Id_produit_json)}')
-        #     futures = [executor.submit(process_product_ARIMA, x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous) for _ in range(len(Product_Id_produit_json))]
+        #     futures = [executor.submit(process_product_ARIMA, process_data_ARIMA(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json), pd.DataFrame(Product_features_json), Product_Id_produit_json)]
         #     results = [future.result() for future in futures]
         
         # results = list(executor.map(lambda x: process_product_ARIMA(x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous), [Product_Id_produit_json]))
-        print(jsonify(results))
-        print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
-        return results, 200
-    # else : 
+
+    else : 
+        results = {}
+        results['OK'] = 0
+        json_string = json.dumps(results)
+        return json_string , 200
+
+
 
 
 if __name__ == '__main__':
     # In the app section directly
-    with ThreadPoolExecutor(max_workers=50) as executor:
-        executor.map(app.run(debug=True ,host='0.0.0.0', port=5000))
+    # with ThreadPoolExecutor(max_workers=50) as executor:
+    #     executor.map(app.run(debug=True ,host='0.0.0.0', port=5000))
 
 
     # Might be better for multi processing use : 
     # with ProcessPoolExecutor(max_workers=50) as executor:
     #     executor.map(app.run(debug=True ,host='0.0.0.0', port=5000))
-    # # serve(app, host='0.0.0.0', port=5000)
+    serve(app, host='0.0.0.0', port=5000)
