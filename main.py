@@ -3,6 +3,7 @@ import logging
 # test afin  de pouvoir répliquer arima
 import utilsTCN
 from AutoArima import TrainAutoArima, PredictAutoArima, GetFeaturesInterpretation
+import AutoArima
 import Xgboost
 import LightGbm
 import CatBoost
@@ -313,29 +314,29 @@ def receive_data():
     # print(Product_Id_produit_json)
     # print(Product_future_features_json)
 
-    print(f'features len {len(Product_features_json)}')
-    print(f'quantity len {len(Product_quantity_json)}')
+    print(f'features {Product_future_features_json}')
+
 
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
         
         # data processing of parametric processis : 
-        # x_future, final_df, target, nb_jours, exogenous = process_data_ARIMA(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-        # Result of parametric processis : 
-        # results = process_product_ARIMA(x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous)
+        # x_future, final_df, target, nb_jours, exogenous = AutoArima.process_data_ARIMA(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+        # # Result of parametric processis : 
+        # results = AutoArima.process_product_ARIMA(x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous)
         
         
         # data processing of tree based model : 
-        # x_future, final_df, target, nb_jours, exogenous = process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+        x_future, final_df, target, nb_jours, exogenous = process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
         # Result of tree based forcasting :
-        # results = LightGbm.process_product_LightGBM(x_future,final_df,target,nb_jours,exogenous) 
-        # results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
+        # # results = LightGbm.process_product_LightGBM(x_future,final_df,target,nb_jours,exogenous) 
+        results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
         # results = RForest.process_product_RandomForest(x_future,final_df,target,nb_jours,exogenous) 
         # results = CatBoost.process_product_CATBoost(x_future, final_df, target, nb_jours, exogenous)
-       
+        #print(results['QUANTITE_0'])
 
         # Create an exemple with TCN model :
-        x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous = utilsTCN.process_data_TCN(request, Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-        results = utilsTCN.process_product_TCN(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous)
+        #x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous = utilsTCN.process_data_TCN(request, Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+        #results = utilsTCN.process_product_TCN(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous)
         
         # Create a Pool of procedure : (for compiutation)
         # with ThreadPoolExecutor(max_workers=10) as executor:
@@ -344,7 +345,7 @@ def receive_data():
         #     results = [future.result() for future in futures]
         
         # results = list(executor.map(lambda x: process_product_ARIMA(x_future, pd.DataFrame(Product_features_json), final_df, target, nb_jours, exogenous), [Product_Id_produit_json]))
-        print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
+        # print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
         return results, 200
     # else : 
 

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd 
 import json
+from flask import Flask, request, jsonify
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
 from xgboost.sklearn import XGBRegressor
 
@@ -27,7 +28,7 @@ def XgBoostRegressor(X_train, y_train):
 
     # finding the best estimator :
     tscv = TimeSeriesSplit(n_splits=5)
-    grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=-1, cv=tscv, verbose=2 )
+    grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=-1, cv=tscv)
     grid_xgb.fit(X_train, y_train)
     model_xgb =  grid_xgb.best_estimator_
 
@@ -40,6 +41,7 @@ def XgBoostRegressor(X_train, y_train):
 def XgBoostPrediction(model_xgb, X_test): 
     # make prediction :
     y_pred_xgboost = model_xgb.predict(X_test)
+    
     # print(y_pred_xgboost)
     return y_pred_xgboost
 
@@ -54,13 +56,91 @@ def XgBoostget_feature_importance(model, importance_type='gain'):
     # Get feature importance
     importance = model.get_booster().get_score(importance_type=importance_type)
 
-    # Create a dataframe for visualization
-    importance_df = pd.DataFrame({
-        'Feature': importance.keys(),
-        'Importance': importance.values()
-    }).sort_values(by='Importance', ascending=False)
+    # Create a dataframe for visualization    
+    # print(importance)
+            
     
-    return importance_df
+    return importance
+
+
+
+def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
+    ##### 
+    #Il faut que face une fonction pour retraiter les données : 
+    #####
+    dfs = []
+
+    # print(f'len of the sales quantity {len(Product_quantity_json)}')
+    # print(f'len of the feature quantity {len(Product_features_json)}')
+
+
+    # Loop through both lists simultaneously
+    if Product_features_json and Product_quantity_json and len(Product_features_json) == len(Product_quantity_json):
+        for features, quantity in zip(Product_features_json, Product_quantity_json):
+            try:
+                df = pd.DataFrame([features])
+                df['QUANTITE'] = quantity
+                dfs.append(df)
+            except Exception as e:
+                print(f"Error processing features: {features}, quantity: {quantity}. Error: {e}")
+
+        if not dfs:
+            print("No dataframes were created. Check the input data.")
+    else:
+        print(f"Input data lists are empty or of different lengths.{len(Product_features_json)}{len(Product_quantity_json)}")
+
+    # Concatenate all DataFrames together
+
+    final_df = pd.concat(dfs, ignore_index=True)
+    # print(f'Original dataset columns {final_df.columns}')
+
+
+    # final_df['DATE_IMPORT'] = pd.to_datetime(final_df['DATE_IMPORT'], format='%d/%m/%Y')
+    final_df = final_df.set_index('DATE_IMPORT')
+    
+    # We then have to see if our date are continuous : 
+    # print(f'index of the dataframe : {final_df.index}')
+    
+    # Convert the received JSON data to a DataFrame : 
+    target = 'QUANTITE'
+    exogenous = [x for x in request.json['LIST_PARAMETRE'] if x != target]
+    # print(f'Used Features : {exogenous}')
+    
+    #Convert to Numeric: 
+    final_df[exogenous] = final_df[exogenous].apply(pd.to_numeric, errors='coerce')
+    final_df[target] = pd.to_numeric(final_df[target], errors='coerce')
+    
+    #Handle NaNs: 
+    final_df.dropna(inplace=True)
+    #fill them with a specific value, like zero: 
+    final_df.fillna(0, inplace=True)
+    
+    
+    x_future = pd.DataFrame(Product_future_features_json) 
+    # print(x_future.columns)
+    # The choice of prediction set 
+    nb_jours = len(x_future)
+    target = 'QUANTITE'
+
+    # print(f'features contained in {x_future.columns}')
+    # x_future['DATE_TMP'] = pd.to_datetime(x_future['DATE_TMP'], format='%d/%m/%Y')
+    x_future =  x_future.set_index('DATE_TMP')
+    
+        # Convert object columns to numeric
+    for col in exogenous:
+        if x_future[col].dtype == 'object':
+            try:
+                x_future[col] = pd.to_numeric(x_future[col], errors='coerce')
+            except Exception as e:
+                print(f"Error converting column {col}: {e}")
+
+    # Drop any columns that still have object dtype
+    final_df = final_df.select_dtypes(exclude=['object'])
+    
+    # print(len(x_future.columns))
+
+    # print(json_output)
+    return x_future, final_df, target, nb_jours, exogenous
 
 
 
@@ -70,6 +150,7 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
 
     # Forecasting with the last price
     model = XgBoostRegressor(final_df[exogenous], final_df[target])
+    
     preds['QUANTITE_AJUSTE'] = XgBoostPrediction(model, final_df[exogenous])
     preds['QUANTITE_0'] = XgBoostPrediction(model, x_future[exogenous])
     
@@ -95,32 +176,28 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
         x_future['PARAM_PROMO'] = [promo] * nb_jours
         preds[f'PROMO_{int(promo * 100)}'] = XgBoostPrediction(model, x_future[exogenous])
         
-    coefficients = XgBoostget_feature_importance(model)
-    preds['ELASTICITE'] = coefficients
     
     
-    # Convert predictions and other data to a format suitable for JSON serialization
+    # Convert predictions to the desired format
     preds_converted = {}
-    for key, value in preds.items():
-        if isinstance(value, pd.DataFrame):
-            # Convert DataFrame to a list of dictionaries (one for each row)
-            preds_converted[key] = value.to_dict(orient='records')
-        elif isinstance(value, (np.ndarray, pd.Series)):
-            # Convert NumPy arrays and pandas Series to lists
-            preds_converted[key] = value.tolist()
-        else:
-            preds_converted[key] = value
-
-    # Convert vec_prix_test to a list if it's a NumPy array
-    if isinstance(vec_prix_test, np.ndarray):
-        vec_prix_test = vec_prix_test.tolist()
-
+    for key, values in preds.items():
+        # Check if 'values' is a list or numpy array
+        if isinstance(values, (list, np.ndarray)):
+            list_dic_values = []
+            for date, value in zip(x_future.index, values):
+                date_value = {"date": str(date), "value": str(value)}
+                list_dic_values.append(date_value)
+            preds_converted[key] = list_dic_values
+            # print(key)
+            
+    coefficients = XgBoostget_feature_importance(model)
+    preds_converted['ELASTICITE'] = coefficients
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
-
-    # Convert the dictionary to JSON
-    json_output = json.dumps(preds_converted, indent=4)
     
-    print(json_output)
+
+    # # Convert the dictionary to JSON
+    json_output = json.dumps(preds_converted)
+
 
 
     return json_output
@@ -130,13 +207,4 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
 
 
 
-# # we can see the error : 
-# mse = mean_squared_error(y_test_df_smooth_1_histo, y_pred_xgboost)
-# rmse = np.sqrt(mean_squared_error(y_test_df_smooth_1_histo, y_pred_xgboost))
-# mae = mean_absolute_error(y_test_df_smooth_1_histo, y_pred_xgboost)
 
-
-
-# print("\tMean Squared error (MSE): %0.2f " % mse) 
-# print("\tMean Squared error (RMSE): %0.2f " % rmse) 
-# print("\tMean absolute error (MAE) : %0.2f " % mae)

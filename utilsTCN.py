@@ -13,6 +13,16 @@ from datetime import datetime
 import matplotlib.dates as mdates
 
 # Some test to understand how features are interpreted by models
+
+from captum.attr import (
+    KernelShap,
+    GradientShap,
+    IntegratedGradients,
+    FeaturePermutation,
+    FeatureAblation,
+    Occlusion
+)
+
 import shap
 import lime
 
@@ -60,6 +70,7 @@ from darts.datasets import AirPassengersDataset, SunspotsDataset
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
 from darts.utils.missing_values import fill_missing_values
 from darts.explainability.shap_explainer import ShapExplainer
+from darts.models import RegressionModel
 import scipy.stats as stats
 import json
 
@@ -347,6 +358,17 @@ def train_TCN(train_en_transformed, val_en_transformed, nb_in, nb_out) :
 
 
 
+class MyTCNWrapper(RegressionModel):
+    def __init__(self, model_TCN):
+        super().__init__()
+        self.model_TCN = model_TCN
+
+    def fit(self, *args, **kwargs):
+        return self.model_TCN.fit(*args, **kwargs)
+
+    def predict(self, *args, **kwargs):
+        return self.model
+
 
 
 # # fearture explanation 
@@ -354,21 +376,15 @@ def train_TCN(train_en_transformed, val_en_transformed, nb_in, nb_out) :
 #     # Create a wrapper function for the model's predict method
 #     # Initialize a SHAP explainer (Deep or Gradient)
 #     # Note: You need to adapt this part based on your model and data specifics
-#     shap_explain = ShapExplainer(model_TCN)
-#     results = shap_explain.explain()
+#     shap_explain = ShapExplainer(model = model_TCN)
+#     results = shap_explain.explain(feature_forecast)
 #     shap_explain.summary_plot()
     
 #     return results
 
-
-
-
-
-
-
-
-
-#It might be near try to use shap on a darts TCN 
+#########
+# This version of the feature interpretation use captum feature interpretation technics :
+# the features are assumed independant : 
 
 def GetFeaturesInterpretation_TCN(nb_pred, nb_in, model_TCN, train_en_transformed, val_en_transformed, feature_forecast, x_future, final_df, target, exogenous):
     
@@ -391,7 +407,12 @@ def GetFeaturesInterpretation_TCN(nb_pred, nb_in, model_TCN, train_en_transforme
             # Call the forecast function
             end_index = feature_forecast[exogenous].time_index.get_loc(first_index_feature)
             sliced_ts = feature_forecast[exogenous][:end_index]
+            sliced_ts = sliced_ts[~sliced_ts.index.duplicated(keep='first')]
+            # Reset the index before appending
+            sliced_ts = sliced_ts.reset_index(drop=True)
+
             x_timeseries = sliced_ts.append(x_timeseries[exogenous])
+       
             forecast = forecast_TCN(len(x), nb_in, model_TCN,  val_en_transformed, x_timeseries, final_df, target, exogenous)
             
         else : 
@@ -402,11 +423,68 @@ def GetFeaturesInterpretation_TCN(nb_pred, nb_in, model_TCN, train_en_transforme
     future_value_forShapTrain =  x_future.values 
     # Create the SHAP explainer using the wrapper function and the DataFrame
     explainer = shap.KernelExplainer(model_wrapper,  future_value_forShapTrain[:100])
-    print(explainer)
+    # print(explainer)
     # Ca me sempble un peu compliqué mais : 
     # On va utiliser la prévision
     # Compute SHAP values for the instances you want to explain
-    shap_values = explainer.shap_values(future_value_forShapTrain[101:])
+    shap_values = explainer.shap_values(future_value_forShapTrain[:100])
+    
+    print(shap_values)
+
+    return shap_values
+
+
+
+
+
+
+
+
+
+# #It might be near try to use shap on a darts TCN 
+
+def GetFeaturesInterpretation_TCN(nb_pred, nb_in, model_TCN, train_en_transformed, val_en_transformed, feature_forecast, x_future, final_df, target, exogenous):
+    
+    # Convert the TimeSeries object to a Pandas DataFrame for SHAP
+    future_df = feature_forecast.pd_dataframe() 
+    # Define a wrapper function for your model's forecast function
+    def model_wrapper(x):
+
+            
+        # Convert x (which will be a NumPy array) back to a TimeSeries object
+        x_df = pd.DataFrame(x, columns= x_future.columns)
+        x_timeseries = transforme_data(x_df, 'DATE_TMP')
+        
+        # Vérifier les indices de temps
+        last_index_val = val_en_transformed[exogenous].time_index[-1]
+        first_index_feature = x_timeseries.time_index[0]
+
+        # S'assurer que les séries temporelles sont contiguës
+        if last_index_val + pd.Timedelta(1, unit='D') != first_index_feature:
+            # Call the forecast function
+            end_index = feature_forecast[exogenous].time_index.get_loc(first_index_feature)
+            sliced_ts = feature_forecast[exogenous][:end_index]
+            sliced_ts = sliced_ts[~sliced_ts.index.duplicated(keep='first')]
+            # Reset the index before appending
+            sliced_ts = sliced_ts.reset_index(drop=True)
+
+            x_timeseries = sliced_ts.append(x_timeseries[exogenous])
+       
+            forecast = forecast_TCN(len(x), nb_in, model_TCN,  val_en_transformed, x_timeseries, final_df, target, exogenous)
+            
+        else : 
+            forecast = forecast_TCN(len(x), nb_in, model_TCN,  val_en_transformed, x_timeseries, final_df, target, exogenous)
+        # Convert the forecast TimeSeries back to a NumPy array for SHAP
+        return forecast
+
+    future_value_forShapTrain =  x_future.values 
+    # Create the SHAP explainer using the wrapper function and the DataFrame
+    explainer = shap.KernelExplainer(model_wrapper,  future_value_forShapTrain[:100])
+    # print(explainer)
+    # Ca me sempble un peu compliqué mais : 
+    # On va utiliser la prévision
+    # Compute SHAP values for the instances you want to explain
+    shap_values = explainer.shap_values(future_value_forShapTrain[:100])
     
     print(shap_values)
 
@@ -591,7 +669,7 @@ def creat_study_Darts(train_en_transformed,val_en_transformed) :
     cpt = 0 
     dic_result_pred = {}
     # The docment is to keep track of the experiment : 
-    file_path = r'C:\Users' 
+    file_path = r'C:\Users\jcric\testApi.txt' 
     # the 'a' mode the program will add to the end of the txt without erasing any thing : 
     with open(file_path , 'a') as f :
         

@@ -1,7 +1,11 @@
+import pandas as pd
+import numpy as np
 import pmdarima as pm
 import pandas as pd
+from flask import Flask, request, jsonify
+import json
 
-
+NB_PRIX = 5
 def process_product_ARIMA(x_future, feature_quantite_final ,final_df,target,nb_jours,exogenous) :
 
     #Creat a dictionary which contains all information needed 
@@ -42,19 +46,7 @@ def process_product_ARIMA(x_future, feature_quantite_final ,final_df,target,nb_j
     #     # print("Model Coefficients:", coefficients)
     preds['ELASTICITE'] = coefficients
             
-    # df_prediction = pd.DataFrame(preds)
-    # print(df_prediction)
-    # Check if the series is not empty (it change)
 
-    # json_string = df_prediction.to_json()
-    # #print(json_string)  # This will print the JSON representation of your series
-    # preds_converted = {key: value.dt.strftime('%Y-%m-%d').tolist() if hasattr(value, 'dt') else value.tolist() for key, value in preds.items()}
-    # # preds['ELASTICITE_NAME']
-    # print(preds_converted['ELASTICITE'])
-    
-    # test_json =  json.dumps(preds_converted)
-    # print(test_json)
-    # return test_json ,200
     
     # Convertir chaque série pandas en liste, en incluant les dates
     preds_converted = {
@@ -68,6 +60,8 @@ def process_product_ARIMA(x_future, feature_quantite_final ,final_df,target,nb_j
         preds_converted['ELASTICITE'] = preds['ELASTICITE'].to_dict()  if isinstance(preds['ELASTICITE'], pd.Series)  else preds['ELASTICITE']
 
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
+    
+    print(type(preds_converted))
 
     # Convertir le dictionnaire en JSON
     json_output = json.dumps(preds_converted, indent=4)
