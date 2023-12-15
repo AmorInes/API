@@ -3,6 +3,7 @@ import pandas as pd
 import json
 from flask import Flask, request, jsonify
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
+import statsmodels.api as sm
 import xgboost
 
 NB_PRIX = 5
@@ -41,26 +42,86 @@ def XgBoostRegressor(X_train, y_train):
 def XgBoostPrediction(model_xgb, X_test): 
     # make prediction :
     y_pred_xgboost = model_xgb.predict(X_test)
-    
-    # print(y_pred_xgboost)
+
     return y_pred_xgboost
 
 
-def XgBoostget_feature_importance(model, importance_type='gain'):
+def get_sign(number):
+    if number > 0:
+        return 1
+    elif number < 0:
+        return -1
+    else:
+        return 0
+
+
+def XgBoostget_feature_importance(model, final_df, target, exogenous, importance_type='gain'):
     """
-    get feature importance of an XGBoost model.
-    
-    :param model: The trained XGBoost model.
-    :param importance_type: Type of importance measure. One of 'weight', 'gain', or 'cover'.
+    Get feature importance of an XGBoost model and calculate elasticity.
     """
-    # Get feature importance
+    # Get feature importance from XGBoost model
     importance = model.get_booster().get_score(importance_type=importance_type)
 
-    # Create a dataframe for visualization    
-    # print(importance)
-            
-    
-    return importance
+    # Normalize feature importance
+    total_importance = sum(importance.values())
+    normalized_importance = {k: v / total_importance for k, v in importance.items()}
+
+    # Add a constant to the model (the intercept)
+    X = sm.add_constant(final_df[exogenous])
+
+    # Fit the regression model
+    regression_model = sm.OLS(final_df[target], X).fit()
+
+    # Calculate elasticity for each feature
+    elasticities = {}
+    for feature in exogenous:
+        if feature in regression_model.params:
+            elasticity = (regression_model.params[feature] * final_df[feature].mean()) / final_df[target].mean()
+            elasticities[feature] = elasticity
+
+    # Combine feature importance with elasticity
+    combined_importance = {feature: round(normalized_importance.get(feature, 0) * get_sign(elasticities.get(feature, 0))  * 100,2)
+                           for feature in exogenous}
+
+    return combined_importance
+
+
+def XgBoost_elasticities(X_test, exogenous, model):
+    pct_change = 0.1
+ 
+    elasticities = {"variables":[], "elasticity" :[]}
+ 
+    for variable_name in exogenous:
+        x1 = X_test[exogenous]
+        x2 = X_test[exogenous]
+
+        if "JS_" in variable_name or "VACANCES" in variable_name:
+            x1.loc[:, variable_name] = 0
+            x2.loc[:, variable_name] = 1
+        else:
+            x1.loc[:, variable_name] = x1[variable_name] * (1 + pct_change)
+            x2.loc[:, variable_name] = x2[variable_name] * (1 - pct_change)
+ 
+        y1 = model.predict(x1)
+        y2 = model.predict(x2)
+ 
+        elasticity = np.mean((y1 - y2) / (x1[variable_name] - x2[variable_name]))
+ 
+        elasticities['elasticity'] +=  [elasticity]
+        elasticities['variables'] += [variable_name]
+ 
+ 
+    return elasticities
+
+
+def split_df(x_final) : 
+    nb_jour = min(90,int(len(x_final)*0.3))
+    x_train = x_final[:-nb_jour]
+    x_test = x_final[-nb_jour:]
+    return x_train, x_test
+
+
+
 
 
 
@@ -69,9 +130,6 @@ def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_f
     #Il faut que face une fonction pour retraiter les données : 
     #####
     dfs = []
-
-    # print(f'len of the sales quantity {len(Product_quantity_json)}')
-    # print(f'len of the feature quantity {len(Product_features_json)}')
 
 
     # Loop through both lists simultaneously
@@ -92,38 +150,31 @@ def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_f
     # Concatenate all DataFrames together
 
     final_df = pd.concat(dfs, ignore_index=True)
-    # print(f'Original dataset columns {final_df.columns}')
 
-
-    # final_df['DATE_IMPORT'] = pd.to_datetime(final_df['DATE_IMPORT'], format='%d/%m/%Y')
     final_df = final_df.set_index('DATE_IMPORT')
     
-    # We then have to see if our date are continuous : 
-    # print(f'index of the dataframe : {final_df.index}')
-    
+
     # Convert the received JSON data to a DataFrame : 
     target = 'QUANTITE'
     exogenous = [x for x in request.json['LIST_PARAMETRE'] if x != target]
-    # print(f'Used Features : {exogenous}')
+
     
     #Convert to Numeric: 
     final_df[exogenous] = final_df[exogenous].apply(pd.to_numeric, errors='coerce')
     final_df[target] = pd.to_numeric(final_df[target], errors='coerce')
     
     #Handle NaNs: 
-    # final_df.dropna(inplace=True)
     #fill them with a specific value, like zero: 
     final_df.fillna(0, inplace=True)
     
     
     x_future = pd.DataFrame(Product_future_features_json) 
-    # print(x_future.columns)
+ 
     # The choice of prediction set 
     nb_jours = len(x_future)
     target = 'QUANTITE'
 
-    # print(f'features contained in {x_future.columns}')
-    # x_future['DATE_TMP'] = pd.to_datetime(x_future['DATE_TMP'], format='%d/%m/%Y')
+
     x_future =  x_future.set_index('DATE_TMP')
     
         # Convert object columns to numeric
@@ -136,10 +187,7 @@ def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_f
 
     # Drop any columns that still have object dtype
     final_df = final_df.select_dtypes(exclude=['object'])
-    
-    # print(len(x_future.columns))
 
-    # print(json_output)
     return x_future, final_df, target, nb_jours, exogenous
 
 
@@ -150,14 +198,10 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
 
     # Forecasting with the last price
     model = XgBoostRegressor(final_df[exogenous], final_df[target])
-    print(f"len final_df {len(final_df[exogenous])}")
-    print(f"len x_future {len(x_future[exogenous])}")
+
     
     preds['QUANTITE_AJUSTE'] = XgBoostPrediction(model, final_df[exogenous])
     preds['QUANTITE_0'] = XgBoostPrediction(model, x_future[exogenous])
-
-    print(f"len preds[QUANTITE_AJUSTE] {len(preds['QUANTITE_AJUSTE'])}")
-    print(f"len preds[QUANTITE_0] {len(preds['QUANTITE_0'])}")
     
     
     # Some variation test
@@ -195,7 +239,7 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
                     date_value = {"date": str(date), "value": str(value)}
                     list_dic_values.append(date_value)
                 preds_converted[key] = list_dic_values
-                # print(key)
+
         else : 
             if isinstance(values, (list, np.ndarray)):
                 list_dic_values = []
@@ -205,13 +249,19 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
                 preds_converted[key] = list_dic_values
 
 
-    coefficients = XgBoostget_feature_importance(model)
+    coefficients = XgBoostget_feature_importance(model,final_df, target, exogenous)
+
+
+
+    # x_train, x_test = split_df(final_df)
+    # model_elasticity = XgBoostRegressor(x_train[exogenous], x_train[target])
+    # coefficients = XgBoost_elasticities(x_test, exogenous, model_elasticity)
+
     preds_converted['ELASTICITE'] = coefficients
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
     preds_converted['OK'] = str(1)
 
-    print(f"La quantite ajuste est de len {len(preds_converted['QUANTITE_AJUSTE'])}")
-    
+
 
     # # Convert the dictionary to JSON
     json_output = json.dumps(preds_converted)

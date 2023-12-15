@@ -18,6 +18,29 @@ def XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_
     print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
     return results
 
+
+@app.route('/api/modelbooper/prixpermanent/user', methods=['POST'])
+def receive_data2():
+
+    Product_features_json = request.json['LIST_HISTO']
+    Product_quantity_json = request.json['LIST_QUANTITE']
+    Product_future_features_json = request.json['LIST_FUTURE']
+    Product_Id_produit_json = request.json['ID_PRODUIT']
+    
+
+
+    if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
+            
+        return  XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
+
+    else : 
+        results = {}
+        results['OK'] = 0
+        json_string = json.dumps(results)
+        return json_string , 200
+    
+
+
 @app.route('/api/modelbooper/prixpermanent', methods=['POST'])
 def receive_data():
 
@@ -44,51 +67,7 @@ def receive_data():
 
 
     
-@app.route('/api/modelbooper/prixpermanent/user', methods=['POST'])
-def receive_data2():
 
-    Product_features_json = request.json['LIST_HISTO']
-    Product_quantity_json = request.json['LIST_QUANTITE']
-    Product_future_features_json = request.json['LIST_FUTURE']
-    Product_Id_produit_json = request.json['ID_PRODUIT']
-    
-    print(f'len list histo {len(Product_features_json)}')
-    print(f'len list quantite { len(Product_quantity_json)}')
-    
-    print('User party')
-
-    if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
-
-        
-  
-
-        # with ThreadPoolExecutor(max_workers=1) as executor:
-            
-        #     futures = executor.submit(XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json))
-        #     # result = future[0].result() # Wait for the function to complete and get the result
-        #     results = [future.result() for future in futures]
-        #     print(results)
-
-        # with ThreadPoolExecutor(max_workers=1) as executor:   
-        #     print(Product_Id_produit_json)
-        #     futures = [executor.submit(XGBoost_direct,
-        #                                Product_features_json,
-        #                                Product_quantity_json, 
-        #                                Product_future_features_json,  
-        #                                Product_Id_produit_json)]
-        #     wait(futures, return_when=ALL_COMPLETED) 
-        #     results = [future.result() for future in futures]
-            
-        return  XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
-
-            
-
-
-    else : 
-        results = {}
-        results['OK'] = 0
-        json_string = json.dumps(results)
-        return json_string , 200
     
     
     
@@ -96,4 +75,4 @@ def receive_data2():
 if __name__ == '__main__':
     # In the app section directly
     with ThreadPoolExecutor(max_workers=50) as executor:
-        executor.map(app.run(debug=True ,host='0.0.0.0', port=80))
+        executor.map(app.run(host='0.0.0.0', port=5000))
