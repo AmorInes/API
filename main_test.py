@@ -12,7 +12,11 @@ import json
 app = Flask(__name__)
 NB_PRIX = 5
 
-
+def XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json):
+    x_future, final_df, target, nb_jours, exogenous = Xgboost.process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+    results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
+    print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
+    return results
 
 @app.route('/api/modelbooper/prixpermanent', methods=['POST'])
 def receive_data():
@@ -26,30 +30,19 @@ def receive_data():
 
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
         # Create a list to store DataFrames : 
-
-
-   
-        with ThreadPoolExecutor(max_workers=1) as executor:
-
-            x_future, final_df, target, nb_jours, exogenous = Xgboost.process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-            results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
-
-            print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
-            return results, 200
+        result = XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
+        # json_string = json.dumps(results)
+        return result,200
 
 
     else : 
         results = {}
-        results['OK'] = 0
+        results['OK'] = str(0)
         json_string = json.dumps(results)
-        return json_string , 200
+        return json_string 
  
 
-def XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json):
-    x_future, final_df, target, nb_jours, exogenous = Xgboost.process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-    results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
-    print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
-    return results, 200
+
     
 @app.route('/api/modelbooper/prixpermanent/user', methods=['POST'])
 def receive_data2():
@@ -59,11 +52,14 @@ def receive_data2():
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
     
-
+    print(f'len list histo {len(Product_features_json)}')
+    print(f'len list quantite { len(Product_quantity_json)}')
     
     print('User party')
 
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
+
+        
   
 
         # with ThreadPoolExecutor(max_workers=1) as executor:
@@ -73,17 +69,17 @@ def receive_data2():
         #     results = [future.result() for future in futures]
         #     print(results)
 
-        with ThreadPoolExecutor(max_workers=1) as executor:   
-            print(Product_Id_produit_json)
-            futures = [executor.submit(XGBoost_direct,
-                                       Product_features_json,
-                                       Product_quantity_json, 
-                                       Product_future_features_json,  
-                                       Product_Id_produit_json)]
-            wait(futures, return_when=ALL_COMPLETED) 
-            results = [future.result() for future in futures]
+        # with ThreadPoolExecutor(max_workers=1) as executor:   
+        #     print(Product_Id_produit_json)
+        #     futures = [executor.submit(XGBoost_direct,
+        #                                Product_features_json,
+        #                                Product_quantity_json, 
+        #                                Product_future_features_json,  
+        #                                Product_Id_produit_json)]
+        #     wait(futures, return_when=ALL_COMPLETED) 
+        #     results = [future.result() for future in futures]
             
-        return results
+        return  XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
 
             
 
@@ -100,4 +96,4 @@ def receive_data2():
 if __name__ == '__main__':
     # In the app section directly
     with ThreadPoolExecutor(max_workers=50) as executor:
-        executor.map(app.run(debug=True ,host='0.0.0.0', port=5000))
+        executor.map(app.run(debug=True ,host='0.0.0.0', port=80))

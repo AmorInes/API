@@ -3,7 +3,7 @@ import pandas as pd
 import json
 from flask import Flask, request, jsonify
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
-from xgboost.sklearn import XGBRegressor
+import xgboost
 
 NB_PRIX = 5
 
@@ -11,7 +11,7 @@ NB_PRIX = 5
 
 def XgBoostRegressor(X_train, y_train):
     #XGBOOSTRegressor hyperparameters :
-    xgb = XGBRegressor()
+    xgb = xgboost.XGBRegressor()
     param_grid = { 
                 'objective':['reg:squarederror'],
                 'learning_rate' : [0.03,0.05,0.07],
@@ -111,7 +111,7 @@ def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_f
     final_df[target] = pd.to_numeric(final_df[target], errors='coerce')
     
     #Handle NaNs: 
-    final_df.dropna(inplace=True)
+    # final_df.dropna(inplace=True)
     #fill them with a specific value, like zero: 
     final_df.fillna(0, inplace=True)
     
@@ -150,9 +150,15 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
 
     # Forecasting with the last price
     model = XgBoostRegressor(final_df[exogenous], final_df[target])
+    print(f"len final_df {len(final_df[exogenous])}")
+    print(f"len x_future {len(x_future[exogenous])}")
     
     preds['QUANTITE_AJUSTE'] = XgBoostPrediction(model, final_df[exogenous])
     preds['QUANTITE_0'] = XgBoostPrediction(model, x_future[exogenous])
+
+    print(f"len preds[QUANTITE_AJUSTE] {len(preds['QUANTITE_AJUSTE'])}")
+    print(f"len preds[QUANTITE_0] {len(preds['QUANTITE_0'])}")
+    
     
     # Some variation test
     prix_min = min(final_df['PARAM_PRIX'])
@@ -181,18 +187,30 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
     # Convert predictions to the desired format
     preds_converted = {}
     for key, values in preds.items():
-        # Check if 'values' is a list or numpy array
-        if isinstance(values, (list, np.ndarray)):
-            list_dic_values = []
-            for date, value in zip(x_future.index, values):
-                date_value = {"date": str(date), "value": str(value)}
-                list_dic_values.append(date_value)
-            preds_converted[key] = list_dic_values
-            # print(key)
-            
+        if key != 'QUANTITE_AJUSTE' : 
+            # Check if 'values' is a list or numpy array
+            if isinstance(values, (list, np.ndarray)):
+                list_dic_values = []
+                for date, value in zip(x_future.index, values):
+                    date_value = {"date": str(date), "value": str(value)}
+                    list_dic_values.append(date_value)
+                preds_converted[key] = list_dic_values
+                # print(key)
+        else : 
+            if isinstance(values, (list, np.ndarray)):
+                list_dic_values = []
+                for date, value in zip(final_df.index, values):
+                    date_value = {"date": str(date), "value": str(value)}
+                    list_dic_values.append(date_value)
+                preds_converted[key] = list_dic_values
+
+
     coefficients = XgBoostget_feature_importance(model)
     preds_converted['ELASTICITE'] = coefficients
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
+    preds_converted['OK'] = str(1)
+
+    print(f"La quantite ajuste est de len {len(preds_converted['QUANTITE_AJUSTE'])}")
     
 
     # # Convert the dictionary to JSON
