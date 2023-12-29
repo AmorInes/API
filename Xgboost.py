@@ -1,8 +1,10 @@
 import numpy as np
 import pandas as pd 
 import json
+from flask import Flask, request, jsonify
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
-from xgboost.sklearn import XGBRegressor
+import statsmodels.api as sm
+import xgboost
 
 NB_PRIX = 5
 
@@ -10,7 +12,7 @@ NB_PRIX = 5
 
 def XgBoostRegressor(X_train, y_train):
     #XGBOOSTRegressor hyperparameters :
-    xgb = XGBRegressor()
+    xgb = xgboost.XGBRegressor()
     param_grid = { 
                 'objective':['reg:squarederror'],
                 'learning_rate' : [0.03,0.05,0.07],
@@ -27,7 +29,7 @@ def XgBoostRegressor(X_train, y_train):
 
     # finding the best estimator :
     tscv = TimeSeriesSplit(n_splits=5)
-    grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=-1, cv=tscv, verbose=2 )
+    grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=-1, cv=tscv)
     grid_xgb.fit(X_train, y_train)
     model_xgb =  grid_xgb.best_estimator_
 
@@ -40,27 +42,153 @@ def XgBoostRegressor(X_train, y_train):
 def XgBoostPrediction(model_xgb, X_test): 
     # make prediction :
     y_pred_xgboost = model_xgb.predict(X_test)
-    # print(y_pred_xgboost)
+
     return y_pred_xgboost
 
 
-def XgBoostget_feature_importance(model, importance_type='gain'):
+def get_sign(number):
+    if number > 0:
+        return 1
+    elif number < 0:
+        return -1
+    else:
+        return 0
+
+
+def XgBoostget_feature_importance(model, final_df, target, exogenous, importance_type='gain'):
     """
-    get feature importance of an XGBoost model.
-    
-    :param model: The trained XGBoost model.
-    :param importance_type: Type of importance measure. One of 'weight', 'gain', or 'cover'.
+    Get feature importance of an XGBoost model and calculate elasticity.
     """
-    # Get feature importance
+    # Get feature importance from XGBoost model
     importance = model.get_booster().get_score(importance_type=importance_type)
 
-    # Create a dataframe for visualization
-    importance_df = pd.DataFrame({
-        'Feature': importance.keys(),
-        'Importance': importance.values()
-    }).sort_values(by='Importance', ascending=False)
+    # Normalize feature importance
+    total_importance = sum(importance.values())
+    normalized_importance = {k: v / total_importance for k, v in importance.items()}
+
+    # Add a constant to the model (the intercept)
+    X = sm.add_constant(final_df[exogenous])
+
+    # Fit the regression model
+    regression_model = sm.OLS(final_df[target], X).fit()
+
+    # Calculate elasticity for each feature
+    elasticities = {}
+    for feature in exogenous:
+        if feature in regression_model.params:
+            elasticity = (regression_model.params[feature] * final_df[feature].mean()) / final_df[target].mean()
+            elasticities[feature] = elasticity
+
+    # Combine feature importance with elasticity
+    combined_importance = {feature: round(normalized_importance.get(feature, 0) * get_sign(elasticities.get(feature, 0))  * 100,2)
+                           for feature in exogenous}
+
+    return combined_importance
+
+
+def XgBoost_elasticities(X_test, exogenous, model):
+    pct_change = 0.1
+ 
+    elasticities = {"variables":[], "elasticity" :[]}
+ 
+    for variable_name in exogenous:
+        x1 = X_test[exogenous]
+        x2 = X_test[exogenous]
+
+        if "JS_" in variable_name or "VACANCES" in variable_name:
+            x1.loc[:, variable_name] = 0
+            x2.loc[:, variable_name] = 1
+        else:
+            x1.loc[:, variable_name] = x1[variable_name] * (1 + pct_change)
+            x2.loc[:, variable_name] = x2[variable_name] * (1 - pct_change)
+ 
+        y1 = model.predict(x1)
+        y2 = model.predict(x2)
+ 
+        elasticity = np.mean((y1 - y2) / (x1[variable_name] - x2[variable_name]))
+ 
+        elasticities['elasticity'] +=  [elasticity]
+        elasticities['variables'] += [variable_name]
+ 
+ 
+    return elasticities
+
+
+def split_df(x_final) : 
+    nb_jour = min(90,int(len(x_final)*0.3))
+    x_train = x_final[:-nb_jour]
+    x_test = x_final[-nb_jour:]
+    return x_train, x_test
+
+
+
+
+
+
+def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
+    ##### 
+    #Il faut que face une fonction pour retraiter les données : 
+    #####
+    dfs = []
+
+
+    # Loop through both lists simultaneously
+    if Product_features_json and Product_quantity_json and len(Product_features_json) == len(Product_quantity_json):
+        for features, quantity in zip(Product_features_json, Product_quantity_json):
+            try:
+                df = pd.DataFrame([features])
+                df['QUANTITE'] = quantity
+                dfs.append(df)
+            except Exception as e:
+                print(f"Error processing features: {features}, quantity: {quantity}. Error: {e}")
+
+        if not dfs:
+            print("No dataframes were created. Check the input data.")
+    else:
+        print(f"Input data lists are empty or of different lengths.{len(Product_features_json)}{len(Product_quantity_json)}")
+
+    # Concatenate all DataFrames together
+
+    final_df = pd.concat(dfs, ignore_index=True)
+
+    final_df = final_df.set_index('DATE_IMPORT')
     
-    return importance_df
+
+    # Convert the received JSON data to a DataFrame : 
+    target = 'QUANTITE'
+    exogenous = [x for x in request.json['LIST_PARAMETRE'] if x != target]
+
+    
+    #Convert to Numeric: 
+    final_df[exogenous] = final_df[exogenous].apply(pd.to_numeric, errors='coerce')
+    final_df[target] = pd.to_numeric(final_df[target], errors='coerce')
+    
+    #Handle NaNs: 
+    #fill them with a specific value, like zero: 
+    final_df.fillna(0, inplace=True)
+    
+    
+    x_future = pd.DataFrame(Product_future_features_json) 
+ 
+    # The choice of prediction set 
+    nb_jours = len(x_future)
+    target = 'QUANTITE'
+
+
+    x_future =  x_future.set_index('DATE_TMP')
+    
+        # Convert object columns to numeric
+    for col in exogenous:
+        if x_future[col].dtype == 'object':
+            try:
+                x_future[col] = pd.to_numeric(x_future[col], errors='coerce')
+            except Exception as e:
+                print(f"Error converting column {col}: {e}")
+
+    # Drop any columns that still have object dtype
+    final_df = final_df.select_dtypes(exclude=['object'])
+
+    return x_future, final_df, target, nb_jours, exogenous
 
 
 
@@ -70,8 +198,11 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
 
     # Forecasting with the last price
     model = XgBoostRegressor(final_df[exogenous], final_df[target])
+
+    
     preds['QUANTITE_AJUSTE'] = XgBoostPrediction(model, final_df[exogenous])
     preds['QUANTITE_0'] = XgBoostPrediction(model, x_future[exogenous])
+    
     
     # Some variation test
     prix_min = min(final_df['PARAM_PRIX'])
@@ -95,32 +226,46 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
         x_future['PARAM_PROMO'] = [promo] * nb_jours
         preds[f'PROMO_{int(promo * 100)}'] = XgBoostPrediction(model, x_future[exogenous])
         
-    coefficients = XgBoostget_feature_importance(model)
-    preds['ELASTICITE'] = coefficients
     
     
-    # Convert predictions and other data to a format suitable for JSON serialization
+    # Convert predictions to the desired format
     preds_converted = {}
-    for key, value in preds.items():
-        if isinstance(value, pd.DataFrame):
-            # Convert DataFrame to a list of dictionaries (one for each row)
-            preds_converted[key] = value.to_dict(orient='records')
-        elif isinstance(value, (np.ndarray, pd.Series)):
-            # Convert NumPy arrays and pandas Series to lists
-            preds_converted[key] = value.tolist()
-        else:
-            preds_converted[key] = value
+    for key, values in preds.items():
+        if key != 'QUANTITE_AJUSTE' : 
+            # Check if 'values' is a list or numpy array
+            if isinstance(values, (list, np.ndarray)):
+                list_dic_values = []
+                for date, value in zip(x_future.index, values):
+                    date_value = {"date": str(date), "value": str(value)}
+                    list_dic_values.append(date_value)
+                preds_converted[key] = list_dic_values
 
-    # Convert vec_prix_test to a list if it's a NumPy array
-    if isinstance(vec_prix_test, np.ndarray):
-        vec_prix_test = vec_prix_test.tolist()
+        else : 
+            if isinstance(values, (list, np.ndarray)):
+                list_dic_values = []
+                for date, value in zip(final_df.index, values):
+                    date_value = {"date": str(date), "value": str(value)}
+                    list_dic_values.append(date_value)
+                preds_converted[key] = list_dic_values
 
+
+    coefficients = XgBoostget_feature_importance(model,final_df, target, exogenous)
+
+
+
+    # x_train, x_test = split_df(final_df)
+    # model_elasticity = XgBoostRegressor(x_train[exogenous], x_train[target])
+    # coefficients = XgBoost_elasticities(x_test, exogenous, model_elasticity)
+
+    preds_converted['ELASTICITE'] = coefficients
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
+    preds_converted['OK'] = str(1)
 
-    # Convert the dictionary to JSON
-    json_output = json.dumps(preds_converted, indent=4)
-    
-    print(json_output)
+
+
+    # # Convert the dictionary to JSON
+    json_output = json.dumps(preds_converted)
+
 
 
     return json_output
@@ -130,13 +275,4 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
 
 
 
-# # we can see the error : 
-# mse = mean_squared_error(y_test_df_smooth_1_histo, y_pred_xgboost)
-# rmse = np.sqrt(mean_squared_error(y_test_df_smooth_1_histo, y_pred_xgboost))
-# mae = mean_absolute_error(y_test_df_smooth_1_histo, y_pred_xgboost)
 
-
-
-# print("\tMean Squared error (MSE): %0.2f " % mse) 
-# print("\tMean Squared error (RMSE): %0.2f " % rmse) 
-# print("\tMean absolute error (MAE) : %0.2f " % mae)
