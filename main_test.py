@@ -4,12 +4,18 @@ import logging
 import Xgboost
 from waitress import serve
 from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, ProcessPoolExecutor, wait
-import data_prep
 import pandas as pd
 import numpy as np
 import json
 
+
+
+
 app = Flask(__name__)
+
+
+
+
 NB_PRIX = 5
 
 def XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json):
@@ -64,15 +70,12 @@ def receive_data():
         json_string = json.dumps(results)
         return json_string 
  
-
-
-    
-
-    
     
     
     
 if __name__ == '__main__':
     # In the app section directly
+    app.debug = False
+    
     with ThreadPoolExecutor(max_workers=50) as executor:
         executor.map(app.run(host='0.0.0.0', port=5000))
