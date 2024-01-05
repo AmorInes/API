@@ -18,10 +18,12 @@ app = Flask(__name__)
 
 NB_PRIX = 5
 
-def XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json):
+def XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json):
     x_future, final_df, target, nb_jours, exogenous = Xgboost.process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
     results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
-    print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
+    mae = json.loads(results).get('MAE')
+    error = json.loads(results).get('ERROR')
+    print(f"je suis là ! Avec le produit {Product_Id_produit_json} dans le magasin {So_Id_json} -- MAE = {mae} -- Error = {error}")
     return results
 
 
@@ -32,12 +34,12 @@ def receive_data2():
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
-    
+    So_Id_json = request.json['ID_SO']
 
 
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
             
-        return  XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
+        return  XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json) 
 
     else : 
         results = {}
@@ -54,12 +56,12 @@ def receive_data():
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
-    
+    So_Id_json = request.json['ID_SO']
 
 
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
         # Create a list to store DataFrames : 
-        result = XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
+        result = XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json) 
         # json_string = json.dumps(results)
         return result,200
 
@@ -78,4 +80,4 @@ if __name__ == '__main__':
     app.debug = False
     
     with ThreadPoolExecutor(max_workers=50) as executor:
-        executor.map(app.run(host='0.0.0.0', port=5000))
+        executor.map(app.run(host='0.0.0.0', port=80))
