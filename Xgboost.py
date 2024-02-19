@@ -12,13 +12,17 @@ import pymysql
 import statsmodels.api as sm
 import xgboost
 
+from sklearn.preprocessing import MinMaxScaler, MaxAbsScaler
 from darts import TimeSeries
+from darts.metrics import mape, mase, rmse, mae, smape
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
 from darts.utils.missing_values import fill_missing_values
 from darts.dataprocessing.transformers import MissingValuesFiller
 from darts.dataprocessing.transformers import Scaler
 from darts.models import XGBModel
 from darts.utils.likelihood_models import GaussianLikelihood,PoissonLikelihood, QuantileRegression
+from darts.explainability.shap_explainer import ShapExplainer
+
 import shap
 
 import pickle
@@ -32,9 +36,17 @@ from optuna.visualization import(
 )
 
 from pytorch_lightning.callbacks import EarlyStopping
+import mysql.connector
+from mysql.connector import Error
 
 
 NB_PRIX = 5
+MAX_N_EPOCHS = 50
+NB_JOUR_PRED = -60 
+
+
+
+
 
 
 
@@ -141,8 +153,6 @@ def XgBoost_elasticities(X_test, exogenous, model):
  
     return elasticities
 
-def XgBoost_shap_variable_influence(): 
-    pass
 
 
 
@@ -533,47 +543,220 @@ the good explanation espacially because there existe a some problem for compuiti
 #     print(shap_values)
 
 
-# def objective
-
-# def optuna_XGBoost_test() : 
 
 """To use this function we need a dataFrame with the date as index :"""
 
-def prepareDataForDarts(df_test_produit) :
-    #On commence par compléter les dates manquantes de notre base de donnée : 
-
-    """On doit faire en sort de controler le nombre de données"""
-    training_size = 0.75
-    Nb_predict = 90
 
 
-    df_test_produit_day_avg = (
-        df_test_produit.groupby(df_test_produit.index.astype(str).str.split(" ").str[0]).mean().reset_index()
-    )
 
-
-    series_en = fill_missing_values(
-        TimeSeries.from_dataframe(
-            df_test_produit_day_avg , fill_missing_dates=True, freq="D", time_col="DATE_IMPORT"
-        ),
-        "auto",
-    )
-
-    # scale
-    # C'est un peut bizzard comme définition : 
-    scaler_en = Scaler()
-    series_en_transformed = scaler_en.fit_transform(series_en)
-    train_en_transformed, val_en_transformed = series_en_transformed.split_after(
-        list(df_test_produit.index)[min(int(len(df_test_produit)*training_size),len(df_test_produit))]
-    )
-
+# That's the function to creat usable dataset for darts : 
+# The orinale version of this come from utilsTCN
+def transforme_data(data,name_date): 
 
     
-    return train_en_transformed, val_en_transformed, Nb_predict
+    print("DataFrame columns before TimeSeries.from_dataframe:", data.columns)
+    print("Is 'DATE_IMPORT' in DataFrame columns?", name_date in data.columns)
+    
+    # Ensure the index is in the expected format
+    # if not isinstance(data.index, pd.DatetimeIndex):
+    #     # Convert the index to a datetime index if necessary
+    #     data.index = pd.to_datetime(data.index)
+
+    # # Group by date (assuming the index is a datetime)
+    # grouped_data = data.groupby(data.index).mean()
+    
+    if name_date == "DATE_IMPORT" : 
+        
+        
+        df_test_produit_day_avg = (
+            data.groupby(data.index.astype(str).str.split(" ").str[0]).mean().reset_index()
+        )
+        
+
+        series_en = fill_missing_values(
+            TimeSeries.from_dataframe(
+                df_test_produit_day_avg , fill_missing_dates=True, freq="D", time_col= name_date
+            ),
+            "auto",
+        )
 
 
-#On peut essayer apprésent d'utiliser une version optimiser de ce procédé en utilisant optuna :
-def objective(trial):
+        # list(df_smooth_1_histo.index)[nb_train_smooth_1_histo]
+        
+        print(list(data.index)[int(len(data)*0.75)])
+
+        # scale
+        scaler_en = Scaler()
+        series_en_transformed = scaler_en.fit_transform(series_en)
+        train_en_transformed, val_en_transformed = series_en_transformed.split_after(
+            list(data.index)[int(len(data)*0.75)]
+        )
+        return train_en_transformed, val_en_transformed
+    
+    if name_date == 'DATE_TMP': 
+        df_test_produit_day_avg = (
+            data.groupby(data.index.astype(str).str.split(" ").str[0]).mean().reset_index()
+        )
+    
+        series_en = fill_missing_values(
+            TimeSeries.from_dataframe(
+                df_test_produit_day_avg , fill_missing_dates=True, freq="D", time_col= name_date
+            ),
+            "auto",
+        )
+        scaler_en = Scaler()
+        series_en_transformed = scaler_en.fit_transform(series_en)
+        return series_en_transformed
+
+
+def rescale_data(predic_non_scaled, data_corrected_test_eval) : 
+    
+    scaler_skQuantite = MaxAbsScaler()
+    scaled_series = scaler_skQuantite.fit_transform(np.array(data_corrected_test_eval['QUANTITE']).reshape(-1,1))
+
+    list_prev = predic_non_scaled['QUANTITE'].values()
+
+    prediction_scaled = [x[0] for x in list_prev]
+    prediction_original = scaler_skQuantite.inverse_transform(np.array(prediction_scaled).reshape(-1,1))
+    data_for_metrics = np.array(prediction_original).reshape(1,-1)
+    
+    return data_for_metrics
+
+def rescale_data_total(predic_non_scaled, data_corrected_test_eval) : 
+    scaler_skQuantite = MaxAbsScaler()
+    scaled_series = scaler_skQuantite.fit_transform(np.array(data_corrected_test_eval).reshape(-1,1))
+
+    list_prev = predic_non_scaled.values()
+
+    prediction_scaled = [x[0] for x in list_prev]
+    prediction_original = scaler_skQuantite.inverse_transform(np.array(prediction_scaled).reshape(-1,1))
+    data_for_metrics = np.array(prediction_original).reshape(1,-1)
+    
+    return data_for_metrics
+
+
+# Metric for the objective function in optuna :  
+def compute_rmse(list1, list2):
+    # Convert lists to numpy arrays for efficient computation
+    
+
+    arr1 = np.array(list1)
+    arr2 = np.array(list2)
+
+    # Ensure the arrays are of the same length
+    if arr1.shape != arr2.shape:
+        raise ValueError("Input lists must have the same length!")
+
+    # Compute squared differences
+    squared_diffs = (arr1 - arr2) ** 2
+
+    # Mask where either array has a NaN
+    valid_values_mask = ~np.isnan(arr1) & ~np.isnan(arr2)
+
+    # Calculate mean of valid squared differences
+    mean_squared_diff = np.mean(squared_diffs[valid_values_mask])
+
+    # Compute RMSE
+    rmse = np.sqrt(mean_squared_diff)
+    return rmse
+
+def process_data_Darts(request, Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
+    ##### 
+    #Il faut que face une fonction pour retraiter les données : 
+    #####
+    dfs = []
+    target = 'QUANTITE'
+   
+
+    # Loop through both lists simultaneously
+    if Product_features_json and Product_quantity_json and len(Product_features_json) == len(Product_quantity_json):
+        for features, quantity in zip(Product_features_json, Product_quantity_json):
+            try:
+                df = pd.DataFrame([features])
+                df['QUANTITE'] = quantity
+                dfs.append(df)
+            except Exception as e:
+                print(f"Error processing features: {features}, quantity: {quantity}. Error: {e}")
+
+        if not dfs:
+            print("No dataframes were created. Check the input data.")
+    else:
+        print(f"Input data lists are empty or of different lengths.{len(Product_features_json)}{len(Product_quantity_json)}")
+        
+        
+    final_df = pd.concat(dfs, ignore_index=True)
+    target = 'QUANTITE'
+    
+    exogenous = [x for x in request.json['LIST_PARAMETRE'] if x != target]
+    # print(f'Used Features : {exogenous}')
+    
+    #Convert to Numeric: 
+    final_df[exogenous] = final_df[exogenous].apply(pd.to_numeric, errors='coerce')
+    final_df[target] = pd.to_numeric(final_df[target], errors='coerce')
+    
+
+    # Concatenate all DataFrames together
+    name_date = 'DATE_IMPORT'
+
+    # print(f'Original dataset columns {final_df.columns}')
+    # Example: Checking the DataFrame columns
+    print(final_df.columns)  # Check the actual column names
+    
+    final_df[name_date] = pd.to_datetime(final_df[name_date], dayfirst=True, format='%d/%m/%Y')
+    # Assuming x_future is your existing DataFrame
+    # Step 2: Set 'DATE_TMP' as the index
+    final_df = final_df.set_index(name_date, drop = False)
+
+    
+
+    #Handle NaNs: 
+    final_df.dropna(inplace=True)
+    #fill them with a specific value, like zero: 
+    final_df.asfreq('D', fill_value=0) 
+    
+    print(final_df.columns)
+    
+    if name_date not in final_df.columns:
+        final_df[name_date] = final_df.index
+    
+    #Inspect Problematic Columns: 
+    # The choice of prediction set     
+    train_en_transformed, val_en_transformed = transforme_data(final_df, name_date)
+    
+    
+    
+    
+    name_date = 'DATE_TMP'
+    x_future = pd.DataFrame(Product_future_features_json) 
+    print(x_future.columns)
+    
+    # Convert 'DATE_TMP' to datetime and set as index
+    x_future['DATE_TMP'] = pd.to_datetime(x_future['DATE_TMP'], dayfirst=True, format='%d/%m/%Y')
+    x_future = x_future.set_index('DATE_TMP', drop = False)
+
+    
+       
+    for col in exogenous:
+        if x_future[col].dtype == 'object':
+            try:
+                x_future[col] = pd.to_numeric(x_future[col], errors='coerce')
+            except Exception as e:
+                print(f"Error converting column {col}: {e}")
+                
+
+    x_future_scaled = transforme_data(x_future, name_date)
+    # print(json_output)
+    return x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous
+
+
+
+def print_callback(study, trial):
+    print(f"Current value: {trial.value}, Current params: {trial.params}")
+    print(f"Best value: {study.best_value}, Best params: {study.best_trial.params}")
+    
+
+# This function is helping us to compiut the new hyperparameter :
+def objective(trial,train_en_transformed,val_en_transformed):
     
     early_stopping_rounds = 10
     
@@ -605,7 +788,7 @@ def objective(trial):
         lags_past_covariates = 15,
         lags = 15,
         early_stopping_rounds=early_stopping_rounds,
-        evals_result=evals_result,
+        evals_result = evals_result,
         verbosity = 0,
         **param
     )
@@ -630,147 +813,223 @@ def objective(trial):
 
     return error_val
 
-def modle_XGB_prev(study_xgboost_shop,train_en_transformed, val_en_transformed):
-    # Extracting best hyperparameters
-    best_params =  study_xgboost_shop.best_params
+def create_database(db_name):
+    
+    try:
+        # Connect to the MySQL server
+        connection = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='JCricklin2023'
+        )
+        
+        # Create a cursor object using the cursor() method
+        cursor = connection.cursor()
+        
+        # Drop database if it already exists and then create it
+        cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
+        cursor.execute(f"CREATE DATABASE {db_name}")
+        print(f"Database `{db_name}` created successfully.")
+        
+    except Error as e:
+        print(f"Error: '{e}' occurred while creating database.")
+    
+    finally:
+        # Close the cursor and connection
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+            print("MySQL connection is closed.")
 
+
+# Make a future forcast :
+def model_XGB_prev(model_XgbOptimRMSE, train_en_transformed, val_en_transformed, exogenous, feature_forecast, nb_in, nombrePred):
+    
+    combined_series = val_en_transformed[exogenous].append(feature_forecast[exogenous])
+
+    # Make predictions
+    predictions = model_XgbOptimRMSE.predict(n= nombrePred, series = val_en_transformed['QUANTITE'][nb_in:], past_covariates = combined_series)  #, series= target[-150:-60], past_covariates = future_covariates[-180:-30], future_covariates = future_covariates[-150:-23])
+    
+    # I may rescal the forecast 
+    return predictions
+
+
+#Il faut que fasse attention à toutes ces parties pour finir mon module Darts : 
+def historical_forecast_XGboost(nb_in, nb_out, model_XGboost, final_df, val_en_transformed, train_en_transformed) : 
+    # Glue up the training and validation set :
+    combined_series = train_en_transformed.append(val_en_transformed)  
+
+    # Make historical forecast :
+    histo_reg_XGB  = model_XGboost.historical_forecasts(
+    series = combined_series['QUANTITE'],
+    past_covariates = combined_series[[x for x in combined_series.columns if x != 'QUANTITE']],
+    forecast_horizon = nb_out,  # forecast horizon
+    stride = 15,  # generate a forecast at every time step
+    retrain = False,  # whether to retrain the model at every step
+    verbose = False
+    )
+    
+    rescale_data(histo_reg_XGB, final_df)
+    
+    return histo_reg_XGB
+
+def create_database_if_not_exists(database_name):
+    try:
+        # Connect to MySQL
+        connection = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='JCricklin2023'  # Replace with your MySQL root password
+        )
+        cursor = connection.cursor()
+        # Check if the database already exists
+        cursor.execute(f"SHOW DATABASES LIKE '{database_name}'")
+        if cursor.fetchone():
+            print(f"Database {database_name} already exists.")
+        else:
+            # Create a new database
+            cursor.execute(f"CREATE DATABASE {database_name}")
+            print(f"Database {database_name} created successfully.")
+    except Error as e:
+        print(f"Error: '{e}'")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+
+# That's the function where we are training the model using if it's possible the older studies :
+# Il faut que j'ajoute à mon study_name l'id_produit, l'id_so, ainsi que eventuellement la date !!!!!!!!!!!!!!!!!!!!!!!!!  
+def creat_and_use_optunaStudies(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous) :
+    # Replace 'NouvelleBase' with your desired database name
+    create_database_if_not_exists('BaseTestSave')               
+    storage_url = "mysql://root:JCricklin2023@localhost/BaseTestSave"
+    study_name = f"Optuna_Study_Example_XGBoost"
+
+    try:
+        study_XGBoost = optuna.study.load_study(study_name=study_name, storage=storage_url)
+        print("Study loaded successfully.")
+    except KeyError:
+        study_XGBoost  = optuna.create_study(
+            storage=storage_url,
+            direction="minimize",
+            study_name=study_name
+        )
+
+
+    if len(study_XGBoost.trials) < 100 : 
+        study_XGBoost.optimize(lambda trial: objective(trial, train_en_transformed, train_en_transformed ), n_trials=100, callbacks=[print_callback])
+            # Kill connection after optimization
+            # To cancel database connection problems
+            # kill_sleeping_processes('example', 'root', 'NewPassword')
+
+    # # Close connection
+    # connection.close()
+    best_params =  study_XGBoost.best_params
+    
     print(f'les meillieurs parametres sont {best_params}')
-
-
 
     # Training a new model with best hyperparameters
     model_XgbOptimRMSE = XGBModel(
-        output_chunk_length = 30,
+        output_chunk_length = 10,
         lags_past_covariates = 15,
         lags=15,
         verbosity = 0,
         **best_params
     )
+    
+    model_XgbOptimRMSE.fit( series = train_en_transformed['QUANTITE'],
+        past_covariates = train_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']],
+        val_series = val_en_transformed['QUANTITE'],
+        val_past_covariates = val_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']],
+    verbose=False)
+    
+    return model_XgbOptimRMSE
 
-    model_XgbOptimRMSE.fit(series = train_en_transformed['QUANTITE'], past_covariates = train_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']], val_series = val_en_transformed['QUANTITE'][:-90], val_past_covariates = val_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']][:-90], verbose = False)
 
-    # Make predictions
-    predictions = model_XgbOptimRMSE.predict(n=60, series = val_en_transformed['QUANTITE'][:-60], past_covariates = val_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']])  #, series= target[-150:-60], past_covariates = future_covariates[-180:-30], future_covariates = future_covariates[-150:-23])
-    return predictions
-
-
-def compute_rmse(list1, list2):
-    # Convert lists to numpy arrays for efficient computation
+def GetFeaturesInterpretationDarts(model_XgbOptimRMSE,final_df, train_en_transformed, val_en_transformed, exogenous, feature_forecast, nb_in, nombrePred): 
+    combined_series = val_en_transformed[exogenous].append(feature_forecast[exogenous])
+    parameters = model_XgbOptimRMSE.kwargs
+    print(parameters)
+    if parameters['booster'] == "gdtree" : 
+        shap_explainer = ShapExplainer(model_XgbOptimRMSE)
+        results = shap_explainer.explain()
+        shap_explainer.summary_plot
+        
+    else :
+        model = 
+        results = XgBoostget_feature_importance(model,final_df, target, exogenous)
+    
+    return(results)
     
 
-    arr1 = np.array(list1)
-    arr2 = np.array(list2)
+# Il faut que je change tout les -60 qui on peut lieu d'être pour les hypers paramêtres mais ça reste à vérifier : 
+def process_product_Darts_XGBoost(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous) :
+    
+    print(len(x_future_scaled))
+    nb_pred = len(x_future)
+    nb_in = 15
+    nb_out = 10
 
-    # Ensure the arrays are of the same length
-    if arr1.shape != arr2.shape:
-        raise ValueError("Input lists must have the same length!")
+    #Creat a dictionary which contains all information needed 
+    preds = {}
 
-    # Compute squared differences
-    squared_diffs = (arr1 - arr2) ** 2
+    # forecasting with the last price :
+    model_XGboost = creat_and_use_optunaStudies(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous)
+    
+    
+    preds['QUANTITE_AJUSTE'] = historical_forecast_XGboost(nb_in, nb_out, model_XGboost, final_df, val_en_transformed, train_en_transformed)
+    preds['QUANTITE_0'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed,  exogenous, x_future_scaled, nb_in, nb_pred)
+    
+    # We are testing the prevision for five differents prices : 
+    # Remark in the Deep learning cases we have to scale the feature for each prices. 
+    prix_min = min(final_df['PARAM_PRIX'])
+    prix_max = max(final_df['PARAM_PRIX'])
+    last_price = final_df['PARAM_PRIX'][-1]
+    vec_prix_test = [prix_min + i*(prix_max - prix_min) / (NB_PRIX - 1 ) for i in range(NB_PRIX)]
+    vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
+    
+    
+    
+    # Change prediction values with the price :
+    cpt=0
+    for prix in vec_prix_test : 
+        cpt+=1
+        x_future['PARAM_PRIX'] = [prix] * nb_pred
+        #Scaling : 
+        x_future_scaled = transforme_data( x_future, 'DATE_TMP')
+        preds[f'PRIX_{cpt}'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed, exogenous, x_future_scaled, nb_in, nb_pred)
+        # x_future_scaled = rescale_data_TCN(preds, x_future)
+ 
+ 
+    # Change prediction values with the promotion value :  
+       
+    x_future['PARAM_PRIX'] = [last_price] * nb_pred 
+   
+    for promo in vec_promo_test : 
 
-    # Mask where either array has a NaN
-    valid_values_mask = ~np.isnan(arr1) & ~np.isnan(arr2)
+        x_future['PARAM_PROMO'] = [promo] * nb_pred
+        #Scaling : 
+        x_future_scaled = transforme_data(x_future, 'DATE_TMP')
+        preds[f'PROMO_{int(promo*100)}'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed, exogenous, x_future_scaled, nb_in, nb_pred)
+    
+    coefficients = GetFeaturesInterpretationDarts(model_XGboost,final_df, train_en_transformed, val_en_transformed, exogenous, x_future_scaled, nb_in, nb_pred)
+    preds['ELASTICITE'] = coefficients
 
-    # Calculate mean of valid squared differences
-    mean_squared_diff = np.mean(squared_diffs[valid_values_mask])
+    
+    # Convertir chaque série pandas en liste, en incluant les dates
+    preds_converted = {
+        key: [{"date": str(date), "value": value} for date, value in zip(value.index, value)] 
+        if hasattr(value, 'index') else value 
+        for key, value in preds.items()
+    }
 
-    # Compute RMSE
-    rmse = np.sqrt(mean_squared_diff)
-    return rmse
+    # Traiter spécifiquement l'élasticité si c'est un dictionnaire ou une série pandas
+    if isinstance(preds['ELASTICITE'], (dict, pd.Series)):
+        preds_converted['ELASTICITE'] = preds['ELASTICITE'].to_dict()  if isinstance(preds['ELASTICITE'], pd.Series)  else preds['ELASTICITE']
 
+    preds_converted['PRIX_INTERVAL'] = vec_prix_test
 
-dic_result_pred_XGBoost = {}
-
-
-
-with open(file_path , 'a') as f:
-
-    for id_erreurProduit in test_results['XGBModel']['ids'] :
-        search_string = f'On train Id : {id_erreurProduit} histo'
-        # Open the file and read line by line
-
-        # Open the file and read line by line
-        bool_product = product_on_theRow(search_string,file_path)
-
-        # print(GetletTSPositif(train_en_transformed))
-
-        if bool_product == True :
-            print(f'the product is the {id_erreurProduit} is in the list ')
-
-        else : 
-            print(f'the product is the {id_erreurProduit} is not in the list ')  
-
-
-            # print(id_erreurProduit)
-            # type_serie_erreur = id_type(id_erreurProduit)
-            
-            # print(type_serie_erreur)
-            # On trouve le groupe de produit auquels les ids appartiennent (Il faudra que je fasse ça sur l'ordinateur à distance)
-            df_test_produit = fast_import_fonction(id_erreurProduit , id_so) 
-
-
-            
-            # print('Le produit a la valeur suivante %s'%id_type(id_erreurProduit))
-            train_en_transformed,val_en_transformed, nbPred = prepareDataForDarts(df_test_produit)
-
-            if  GetletTSPositif(train_en_transformed) < GetletTSPositif(val_en_transformed) : 
-                print("the product do not have enought sels in the history ")
-
-            else :
-
-                preds_XGB_temp = train_XGBoost_model(train_en_transformed, val_en_transformed, NB_JOUR_PRED , 30, 15)
-                # print(list(pred_WellScaled(preds_id_tcn, df_test_produit)[0]))
-                preds_affichage = list(df_test_produit['QUANTITE'][:-60]) + list(pred_WellScaled(preds_XGB_temp, df_test_produit)[0])
-                dic_result_pred_XGBoost[id_erreurProduit] = {'pred' : [preds_affichage], 'pred_optim' : [] }
-
-                
-
-                
-                # # # Create engine
-                # engine = create_engine("mysql://root:Booper2014%40@localhost/example")
-                # # # Establish connection
-                # connection = engine.connect()
-                    
-                storage_url = "mysql://root:NewPassword@localhost/example"
-                study_name = f"distributed-example_XGBoost_predictionOnAccurte{id_erreurProduit}"
-
-                try:
-                    study_XGBoost = optuna.study.load_study(study_name=study_name, storage=storage_url)
-                    print("Study loaded successfully.")
-                except KeyError:
-                    study_XGBoost  = optuna.create_study(
-                        storage=storage_url,
-                        direction="minimize",
-                        study_name=study_name
-                    )
-
-                
-                if len(study_XGBoost.trials) < 50 : 
-                    study_XGBoost.optimize(objective, n_trials=30, callbacks=[print_callback])
-                    # Kill the connection after optimization
-                    kill_sleeping_processes('example', 'root', 'NewPassword')
-
-                # # Close connection
-                # connection.close()
-            
-                prev_optim = modle_XGB_prev(study_XGBoost, train_en_transformed, val_en_transformed)
-                preds_affichage = list(df_test_produit['QUANTITE'][:-60]) + list(pred_WellScaled(prev_optim, df_test_produit)[0])
-                # print(preds_affichage[-60:])
-                panda_dataframe_produit = pd.DataFrame({'DATE_IMPORT': df_test_produit.index, 'QUANTITE': preds_affichage})
-                panda_dataframe_produit.set_index('DATE_IMPORT', inplace=True)
-                dic_result_pred_XGBoost[id_erreurProduit]['pred_optim'] = list(pred_WellScaled(prev_optim, df_test_produit)[0])
-                vecteur_comparaison = [list(ts[0][0][0].values()[0])[0] for ts in list(val_en_transformed['QUANTITE'][-NB_JOUR_PRED:])]
-                print(f'Combien de prediction {len(pred_WellScaled(prev_optim, df_test_produit)[0])}')
-                print(f'Combien de points {len(vecteur_comparaison)}')
-
-                dic_result_pred_XGBoost[id_erreurProduit]['rmse'] = compute_rmse(vecteur_comparaison, pred_WellScaled(prev_optim, df_test_produit)[0])
-                dic_result_pred_XGBoost[id_erreurProduit]['rmse_AHPO'] = compute_rmse(vecteur_comparaison, pred_WellScaled(preds_XGB_temp, df_test_produit)[0])
-                rmse_AHPO = dic_result_pred_XGBoost[id_erreurProduit]['rmse_AHPO']
-                predicted_values = dic_result_pred_XGBoost[id_erreurProduit]['pred_optim']
-                rmse_pred = dic_result_pred_XGBoost[id_erreurProduit]['rmse']
-                f.write(f'On train Id : {id_erreurProduit} histo' + '\n')
-                f.write(f'avantOptimization : {preds_affichage}' + '\n')
-                f.write(f'predicted : {predicted_values}' + '\n')
-                f.write(f'rmse : {rmse_AHPO}' + '\n')
-                f.write(f'rmse : {rmse_pred}' + '\n')
-                print(f'On a fini les opérations avec le produit dont lID est {id_erreurProduit} ')
+    # Convertir le dictionnaire en JSON
+    json_output = json.dumps(preds_converted, indent=4)
+    return json_output
