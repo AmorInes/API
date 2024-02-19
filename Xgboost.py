@@ -539,6 +539,20 @@ the good explanation espacially because there existe a some problem for compuiti
 
 """To use this function we need a dataFrame with the date as index :"""
 
+
+#That is for rescaling after the prevision (because we scale the date)
+def pred_WellScaled(predic_non_scaled, data_corrected_test_eval):
+    scaler_skQuantite = MaxAbsScaler()
+    scaled_series = scaler_skQuantite.fit_transform(np.array(data_corrected_test_eval['QUANTITE']).reshape(-1,1))
+
+    list_prev = predic_non_scaled['QUANTITE'].values()
+
+    prediction_scaled = [x[0] for x in list_prev]
+    prediction_original = scaler_skQuantite.inverse_transform(np.array(prediction_scaled).reshape(-1,1))
+    data_for_metrics = np.array(prediction_original).reshape(1,-1)
+    
+    return data_for_metrics
+
 def prepareDataForDarts(df_test_produit) :
     #On commence par compléter les dates manquantes de notre base de donnée : 
 
@@ -683,94 +697,70 @@ dic_result_pred_XGBoost = {}
 
 
 
-with open(file_path , 'a') as f:
+    
+# print('Le produit a la valeur suivante %s'%id_type(id_erreurProduit))
+train_en_transformed,val_en_transformed, nbPred = prepareDataForDarts(df_test_produit)
 
-    for id_erreurProduit in test_results['XGBModel']['ids'] :
-        search_string = f'On train Id : {id_erreurProduit} histo'
-        # Open the file and read line by line
+if  GetletTSPositif(train_en_transformed) < GetletTSPositif(val_en_transformed) : 
+    print("the product do not have enought sels in the history ")
 
-        # Open the file and read line by line
-        bool_product = product_on_theRow(search_string,file_path)
+else :
 
-        # print(GetletTSPositif(train_en_transformed))
+    preds_XGB_temp = train_XGBoost_model(train_en_transformed, val_en_transformed, NB_JOUR_PRED , 30, 15)
+    # print(list(pred_WellScaled(preds_id_tcn, df_test_produit)[0]))
+    preds_affichage = list(df_test_produit['QUANTITE'][:-60]) + list(pred_WellScaled(preds_XGB_temp, df_test_produit)[0])
+    dic_result_pred_XGBoost[id_erreurProduit] = {'pred' : [preds_affichage], 'pred_optim' : [] }
 
-        if bool_product == True :
-            print(f'the product is the {id_erreurProduit} is in the list ')
+    
 
-        else : 
-            print(f'the product is the {id_erreurProduit} is not in the list ')  
+    
+    # # # Create engine
+    # engine = create_engine("mysql://root:Booper2014%40@localhost/example")
+    # # # Establish connection
+    # connection = engine.connect()
+        
+    storage_url = "mysql://root:NewPassword@localhost/example"
+    study_name = f"distributed-example_XGBoost_predictionOnAccurte{id_erreurProduit}"
 
+    try:
+        study_XGBoost = optuna.study.load_study(study_name=study_name, storage=storage_url)
+        print("Study loaded successfully.")
+    except KeyError:
+        study_XGBoost  = optuna.create_study(
+            storage=storage_url,
+            direction="minimize",
+            study_name=study_name
+        )
 
-            # print(id_erreurProduit)
-            # type_serie_erreur = id_type(id_erreurProduit)
-            
-            # print(type_serie_erreur)
-            # On trouve le groupe de produit auquels les ids appartiennent (Il faudra que je fasse ça sur l'ordinateur à distance)
-            df_test_produit = fast_import_fonction(id_erreurProduit , id_so) 
+    
+    if len(study_XGBoost.trials) < 50 : 
+        study_XGBoost.optimize(objective, n_trials=30, callbacks=[print_callback])
 
+        # This part is to controle the number of process who are acting on the dataBase 
+        # # Kill the connection after optimization
+        # kill_sleeping_processes('example', 'root', 'NewPassword')
 
-            
-            # print('Le produit a la valeur suivante %s'%id_type(id_erreurProduit))
-            train_en_transformed,val_en_transformed, nbPred = prepareDataForDarts(df_test_produit)
+    # # Close connection
+    # connection.close()
 
-            if  GetletTSPositif(train_en_transformed) < GetletTSPositif(val_en_transformed) : 
-                print("the product do not have enought sels in the history ")
+    prev_optim = modle_XGB_prev(study_XGBoost, train_en_transformed, val_en_transformed)
+    preds_affichage = list(df_test_produit['QUANTITE'][:-60]) + list(pred_WellScaled(prev_optim, df_test_produit)[0])
+    # print(preds_affichage[-60:])
+    panda_dataframe_produit = pd.DataFrame({'DATE_IMPORT': df_test_produit.index, 'QUANTITE': preds_affichage})
+    panda_dataframe_produit.set_index('DATE_IMPORT', inplace=True)
+    dic_result_pred_XGBoost[id_erreurProduit]['pred_optim'] = list(pred_WellScaled(prev_optim, df_test_produit)[0])
+    vecteur_comparaison = [list(ts[0][0][0].values()[0])[0] for ts in list(val_en_transformed['QUANTITE'][-NB_JOUR_PRED:])]
+    print(f'Combien de prediction {len(pred_WellScaled(prev_optim, df_test_produit)[0])}')
+    print(f'Combien de points {len(vecteur_comparaison)}')
 
-            else :
-
-                preds_XGB_temp = train_XGBoost_model(train_en_transformed, val_en_transformed, NB_JOUR_PRED , 30, 15)
-                # print(list(pred_WellScaled(preds_id_tcn, df_test_produit)[0]))
-                preds_affichage = list(df_test_produit['QUANTITE'][:-60]) + list(pred_WellScaled(preds_XGB_temp, df_test_produit)[0])
-                dic_result_pred_XGBoost[id_erreurProduit] = {'pred' : [preds_affichage], 'pred_optim' : [] }
-
-                
-
-                
-                # # # Create engine
-                # engine = create_engine("mysql://root:Booper2014%40@localhost/example")
-                # # # Establish connection
-                # connection = engine.connect()
-                    
-                storage_url = "mysql://root:NewPassword@localhost/example"
-                study_name = f"distributed-example_XGBoost_predictionOnAccurte{id_erreurProduit}"
-
-                try:
-                    study_XGBoost = optuna.study.load_study(study_name=study_name, storage=storage_url)
-                    print("Study loaded successfully.")
-                except KeyError:
-                    study_XGBoost  = optuna.create_study(
-                        storage=storage_url,
-                        direction="minimize",
-                        study_name=study_name
-                    )
-
-                
-                if len(study_XGBoost.trials) < 50 : 
-                    study_XGBoost.optimize(objective, n_trials=30, callbacks=[print_callback])
-                    # Kill the connection after optimization
-                    kill_sleeping_processes('example', 'root', 'NewPassword')
-
-                # # Close connection
-                # connection.close()
-            
-                prev_optim = modle_XGB_prev(study_XGBoost, train_en_transformed, val_en_transformed)
-                preds_affichage = list(df_test_produit['QUANTITE'][:-60]) + list(pred_WellScaled(prev_optim, df_test_produit)[0])
-                # print(preds_affichage[-60:])
-                panda_dataframe_produit = pd.DataFrame({'DATE_IMPORT': df_test_produit.index, 'QUANTITE': preds_affichage})
-                panda_dataframe_produit.set_index('DATE_IMPORT', inplace=True)
-                dic_result_pred_XGBoost[id_erreurProduit]['pred_optim'] = list(pred_WellScaled(prev_optim, df_test_produit)[0])
-                vecteur_comparaison = [list(ts[0][0][0].values()[0])[0] for ts in list(val_en_transformed['QUANTITE'][-NB_JOUR_PRED:])]
-                print(f'Combien de prediction {len(pred_WellScaled(prev_optim, df_test_produit)[0])}')
-                print(f'Combien de points {len(vecteur_comparaison)}')
-
-                dic_result_pred_XGBoost[id_erreurProduit]['rmse'] = compute_rmse(vecteur_comparaison, pred_WellScaled(prev_optim, df_test_produit)[0])
-                dic_result_pred_XGBoost[id_erreurProduit]['rmse_AHPO'] = compute_rmse(vecteur_comparaison, pred_WellScaled(preds_XGB_temp, df_test_produit)[0])
-                rmse_AHPO = dic_result_pred_XGBoost[id_erreurProduit]['rmse_AHPO']
-                predicted_values = dic_result_pred_XGBoost[id_erreurProduit]['pred_optim']
-                rmse_pred = dic_result_pred_XGBoost[id_erreurProduit]['rmse']
-                f.write(f'On train Id : {id_erreurProduit} histo' + '\n')
-                f.write(f'avantOptimization : {preds_affichage}' + '\n')
-                f.write(f'predicted : {predicted_values}' + '\n')
-                f.write(f'rmse : {rmse_AHPO}' + '\n')
-                f.write(f'rmse : {rmse_pred}' + '\n')
-                print(f'On a fini les opérations avec le produit dont lID est {id_erreurProduit} ')
+    dic_result_pred_XGBoost[id_erreurProduit]['rmse'] = compute_rmse(vecteur_comparaison, pred_WellScaled(prev_optim, df_test_produit)[0])
+    dic_result_pred_XGBoost[id_erreurProduit]['rmse_AHPO'] = compute_rmse(vecteur_comparaison, pred_WellScaled(preds_XGB_temp, df_test_produit)[0])
+    rmse_AHPO = dic_result_pred_XGBoost[id_erreurProduit]['rmse_AHPO']
+    predicted_values = dic_result_pred_XGBoost[id_erreurProduit]['pred_optim']
+    rmse_pred = dic_result_pred_XGBoost[id_erreurProduit]['rmse']
+    f.write(f'On train Id : {id_erreurProduit} histo' + '\n')
+    f.write(f'avantOptimization : {preds_affichage}' + '\n')
+    f.write(f'predicted : {predicted_values}' + '\n')
+    f.write(f'rmse : {rmse_AHPO}' + '\n')
+    f.write(f'rmse : {rmse_pred}' + '\n')
+    print(f'On a fini les opérations avec le produit dont lID est {id_erreurProduit} ')
