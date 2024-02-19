@@ -3,6 +3,8 @@ import pandas as pd
 import json
 from flask import Flask, request, jsonify
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+
 
 import mysql.connector
 from mysql.connector import Error
@@ -49,10 +51,18 @@ NB_JOUR_PRED = -60
 
 
 
+class XGBRegressorInt(xgboost.XGBRegressor):
+        def predict(self, data):
+            _y = super().predict(data)
+            return np.asarray(_y, dtype=np.intc)
+
+    
+
+
 
 def XgBoostRegressor(X_train, y_train):
     #XGBOOSTRegressor hyperparameters :
-    xgb = xgboost.XGBRegressor()
+    xgb = XGBRegressorInt()
     param_grid = { 
                 'objective':['reg:squarederror'],
                 'learning_rate' : [0.03,0.05,0.07],
@@ -82,6 +92,8 @@ def XgBoostRegressor(X_train, y_train):
 def XgBoostPrediction(model_xgb, X_test): 
     # make prediction :
     y_pred_xgboost = model_xgb.predict(X_test)
+
+    y_pred_xgboost [y_pred_xgboost < 0] = 0
 
     return y_pred_xgboost
 
@@ -206,6 +218,9 @@ def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_f
     final_df[exogenous] = final_df[exogenous].apply(pd.to_numeric, errors='coerce')
     final_df[target] = pd.to_numeric(final_df[target], errors='coerce')
     
+    final_df[target] = final_df[target].apply(lambda x: 0 if x < 0 else x)
+
+
     #Handle NaNs: 
     #fill them with a specific value, like zero: 
     final_df.fillna(0, inplace=True)
@@ -239,6 +254,15 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
     # Create a dictionary which contains all information needed 
     preds = {}
 
+    X_train, X_test = split_df(final_df)
+
+    model_test = XgBoostRegressor(X_train[exogenous], X_train[target])
+
+    y_pred_test = XgBoostPrediction(model_test, X_test[exogenous])
+
+    mae = mean_absolute_error(y_pred_test, X_test[target])
+    error = float(abs(sum(y_pred_test) - sum(X_test[target])))
+
     # Forecasting with the last price
     model = XgBoostRegressor(final_df[exogenous], final_df[target])
 
@@ -250,7 +274,7 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
     # Some variation test
     prix_min = min(final_df['PARAM_PRIX'])
     prix_max = max(final_df['PARAM_PRIX'])
-    last_price = final_df['PARAM_PRIX'][-1]
+    last_price = final_df['PARAM_PRIX'].iloc[-1]
 
     vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(NB_PRIX)]
     vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
@@ -299,6 +323,10 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
     # x_train, x_test = split_df(final_df)
     # model_elasticity = XgBoostRegressor(x_train[exogenous], x_train[target])
     # coefficients = XgBoost_elasticities(x_test, exogenous, model_elasticity)
+
+
+    preds_converted['MAE']=mae
+    preds_converted['ERROR']=error
 
     preds_converted['ELASTICITE'] = coefficients
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
