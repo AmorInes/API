@@ -74,6 +74,12 @@ from darts.models import RegressionModel
 import scipy.stats as stats
 import json
 
+
+"""We have a general remark as all darts model are working the same it would be interesting to creat a super class darts models :"""
+
+
+
+
 NB_PRIX = 5
 BATCH_SIZE = 32
 MAX_N_EPOCHS = 50
