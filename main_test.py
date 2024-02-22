@@ -48,8 +48,13 @@ def receive_data2():
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
             
 
-        #return  XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
-        return XGBoost_loaded_version(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
+        #result = XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
+        result = XGBoost_loaded_version(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
+
+        print(result)
+
+        # json_string = json.dumps(results)
+        return result,200
 
 
     else : 

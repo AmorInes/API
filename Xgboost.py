@@ -4,8 +4,10 @@ import json
 from flask import Flask, request, jsonify
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+import matplotlib.pyplot as plt
+from datetime import datetime
 
-
+import time
 import mysql.connector
 from mysql.connector import Error
 from sqlalchemy import create_engine, exc
@@ -50,7 +52,7 @@ NB_JOUR_PRED = -60
 
 
 
-
+# To see again if I can use this kind for technik with darts and the hyperparameter interpretation : 
 class XGBRegressorInt(xgboost.XGBRegressor):
         def predict(self, data):
             _y = super().predict(data)
@@ -371,7 +373,7 @@ def process_product_XgboostII(x_future, final_df, target, nb_jours, exogenous,id
     else : 
          
         y_pred,model = model_load(x_future, exogenous, id_produit, db_config)
-        print(y_pred)
+        #print(y_pred)
 
 
     
@@ -445,16 +447,21 @@ def process_product_XgboostII(x_future, final_df, target, nb_jours, exogenous,id
 
     return json_output
 
+def add_
 
-
-def save_the_model(model_xgb,Product_Id_produit_json,db_config): 
+def save_the_model(model_xgb,Id_produit_request,ID_SO_request,ID_TARIF_request,Client_request, db_config): 
     # Use the id of the product : 
-    print(Product_Id_produit_json)
-    product_id = Product_Id_produit_json
+    #print(Product_Id_produit_json)
+    product_id = Id_produit_request
 
+    current_date = datetime.now()
+    DATE_UPDATE_request = current_date.strftime('%d/%m/%Y')
 
     serialized_model = pickle.dumps(model_xgb)
     # Database connection parameters
+
+    # On verifie le nom des columns : 
+    print(f"Le nom des columns {columnsVerification(db_config)}")
 
 
     # Establish connection
@@ -462,10 +469,10 @@ def save_the_model(model_xgb,Product_Id_produit_json,db_config):
     cursor = conn.cursor()
 
     # SQL query to insert the model with both product_id and model_data
-    query = "INSERT INTO models (product_id, model_data) VALUES (%s, %s)"
+    query = "INSERT INTO models ( id_produit,  model_data, ID_SO, ID_TARIF, CLIENT, DATE_UPDATE) VALUES (%s, %s)"
 
     # Execute the query
-    cursor.execute(query, (product_id, serialized_model))
+    cursor.execute(query, (product_id, serialized_model, ID_SO_request, ID_TARIF_request, Client_request, DATE_UPDATE_request))
 
 
     # Commit the transaction
@@ -473,6 +480,25 @@ def save_the_model(model_xgb,Product_Id_produit_json,db_config):
 
     cursor.close()
     conn.close()
+
+def columnsVerification(db_config):
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+
+    query = "SHOW FIELDS FROM models"
+    
+    # Execute the query
+    cursor.execute(query)
+    # Fetch all results
+    results = cursor.fetchall()
+
+    # Extract just the column names from the results
+    column_names = [result[0] for result in results]
+
+    cursor.close()
+    conn.close()
+
+    return column_names
 
 def model_load(data, exogenous, model_id,db_config) : 
     """
@@ -486,6 +512,10 @@ def model_load(data, exogenous, model_id,db_config) :
     cursor = conn.cursor()
     # SQL query to fetch the model
      # Replace with the actual ID of your model
+    
+    print(f"Le nom des columns {columnsVerification(db_config)}")
+    
+    
     query = "SELECT model_data, product_id FROM models WHERE product_id = %s"
 
     # Execute the query
@@ -614,7 +644,7 @@ def transforme_data(data,name_date):
         print(list(data.index)[int(len(data)*0.75)])
 
         # scale
-        scaler_en = Scaler()
+        scaler_en = Scaler(MaxAbsScaler())
         series_en_transformed = scaler_en.fit_transform(series_en)
         train_en_transformed, val_en_transformed = series_en_transformed.split_after(
             list(data.index)[int(len(data)*0.75)]
@@ -632,27 +662,35 @@ def transforme_data(data,name_date):
             ),
             "auto",
         )
-        scaler_en = Scaler()
+        scaler_en = Scaler(MaxAbsScaler())
         series_en_transformed = scaler_en.fit_transform(series_en)
         return series_en_transformed
 
 
 def rescale_data(predic_non_scaled, data_corrected_test_eval) : 
     
-    scaler_skQuantite = MaxAbsScaler()
-    scaled_series = scaler_skQuantite.fit_transform(np.array(data_corrected_test_eval['QUANTITE']).reshape(-1,1))
+    dataScaledJson = []
 
+    scaler_skQuantite = MaxAbsScaler()
+    scaler_skQuantite.fit_transform(np.array(data_corrected_test_eval['QUANTITE']).reshape(-1,1))
+    list_date = predic_non_scaled.time_index.tolist()
+    dates_str_list = [date.strftime('%Y-%m-%d') for date in list_date]
+    # print(len(dates_str_list))
     list_prev = predic_non_scaled['QUANTITE'].values()
 
+    print(f"That is the date len{len(list_prev)}")
     prediction_scaled = [x[0] for x in list_prev]
     prediction_original = scaler_skQuantite.inverse_transform(np.array(prediction_scaled).reshape(-1,1))
     data_for_metrics = np.array(prediction_original).reshape(1,-1)
+    data_for_metrics = data_for_metrics.tolist()[0]
+    print(f"That is the forecast len{len(data_for_metrics)}")
+    combined_list = [{"date":str(date), "value": str(forecast)} for date, forecast in zip(dates_str_list, data_for_metrics)]
     
-    return data_for_metrics
+    return combined_list
 
 def rescale_data_total(predic_non_scaled, data_corrected_test_eval) : 
     scaler_skQuantite = MaxAbsScaler()
-    scaled_series = scaler_skQuantite.fit_transform(np.array(data_corrected_test_eval).reshape(-1,1))
+    scaler_skQuantite.fit_transform(np.array(data_corrected_test_eval).reshape(-1,1))
 
     list_prev = predic_non_scaled.values()
 
@@ -812,9 +850,9 @@ def objective(trial,train_en_transformed,val_en_transformed):
     evals_result = {}  # To store evaluation results
     model = XGBModel(
         #lags = 12,
-        output_chunk_length = 30,
-        lags_past_covariates = 15,
-        lags = 15,
+        output_chunk_length = 1,
+        lags_past_covariates = 7,
+        lags = 7,
         early_stopping_rounds=early_stopping_rounds,
         evals_result = evals_result,
         verbosity = 0,
@@ -830,7 +868,7 @@ def objective(trial,train_en_transformed,val_en_transformed):
             return float('inf')  # return a large value to indicate this configuration is not desirable
     
     # Train the model
-    model.fit(series = train_en_transformed['QUANTITE'], past_covariates = train_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']], val_series = val_en_transformed['QUANTITE'][:-90], val_past_covariates = val_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']][:-90], verbose = False)
+    model.fit(series = train_en_transformed['QUANTITE'], past_covariates = train_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']], val_series = val_en_transformed['QUANTITE'][:-60], val_past_covariates = val_en_transformed[[x for x in train_en_transformed.columns if x != 'QUANTITE']][:-60], verbose = False)
 
 
     # Validate the model
@@ -848,14 +886,14 @@ def create_database(db_name):
         connection = mysql.connector.connect(
             host='localhost',
             user='root',
-            password='JCricklin2023'
+            password='Booper2014!'
         )
         
         # Create a cursor object using the cursor() method
         cursor = connection.cursor()
         
         # Drop database if it already exists and then create it
-        cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
+        # cursor.execute(f"DROP DATABASE IF EXISTS {db_name}")
         cursor.execute(f"CREATE DATABASE {db_name}")
         print(f"Database `{db_name}` created successfully.")
         
@@ -871,13 +909,15 @@ def create_database(db_name):
 
 
 # Make a future forcast :
-def model_XGB_prev(model_XgbOptimRMSE, train_en_transformed, val_en_transformed, exogenous, feature_forecast, nb_in, nombrePred):
+def model_XGB_prev(model_XgbOptimRMSE, train_en_transformed, val_en_transformed, final_df, exogenous, feature_forecast, nb_in, nombrePred):
     
     combined_series = val_en_transformed[exogenous].append(feature_forecast[exogenous])
 
     # Make predictions
     predictions = model_XgbOptimRMSE.predict(n= nombrePred, series = val_en_transformed['QUANTITE'][nb_in:], past_covariates = combined_series)  #, series= target[-150:-60], past_covariates = future_covariates[-180:-30], future_covariates = future_covariates[-150:-23])
     
+
+    predictions = rescale_data(predictions, final_df)
     # I may rescal the forecast 
     return predictions
 
@@ -891,13 +931,13 @@ def historical_forecast_XGboost(nb_in, nb_out, model_XGboost, final_df, val_en_t
     histo_reg_XGB  = model_XGboost.historical_forecasts(
     series = combined_series['QUANTITE'],
     past_covariates = combined_series[[x for x in combined_series.columns if x != 'QUANTITE']],
-    forecast_horizon = nb_out,  # forecast horizon
-    stride = 15,  # generate a forecast at every time step
+    forecast_horizon = 1,  # forecast horizon
+    stride = 1,  # generate a forecast at every time step
     retrain = False,  # whether to retrain the model at every step
     verbose = False
     )
     
-    rescale_data(histo_reg_XGB, final_df)
+    histo_reg_XGB = rescale_data(histo_reg_XGB, final_df)
     
     return histo_reg_XGB
 
@@ -907,7 +947,7 @@ def create_database_if_not_exists(database_name):
         connection = mysql.connector.connect(
             host='localhost',
             user='root',
-            password='JCricklin2023'  # Replace with your MySQL root password
+            password='Booper2014!'  # Replace with your MySQL root password
         )
         cursor = connection.cursor()
         # Check if the database already exists
@@ -926,18 +966,42 @@ def create_database_if_not_exists(database_name):
             connection.close()
 
 
+def TestConnectionDataSet(DataBaseName) :
+    # Connect to the database
+    connection = pymysql.connect(host='localhost',
+                                user='root',
+                                password='Booper2014!',
+                                database=DataBaseName,
+                                cursorclass=pymysql.cursors.DictCursor)
+
+    try:
+        with connection.cursor() as cursor:
+            # Create a new record
+            sql = "SHOW TABLES;"
+            cursor.execute(sql)
+            result = cursor.fetchall()
+            #print(result)
+    finally:
+        connection.close()
+
+
+
+
 # That's the function where we are training the model using if it's possible the older studies :
 # Il faut que j'ajoute à mon study_name l'id_produit, l'id_so, ainsi que eventuellement la date !!!!!!!!!!!!!!!!!!!!!!!!!  
 def creat_and_use_optunaStudies(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous) :
     # Replace 'NouvelleBase' with your desired database name
     create_database_if_not_exists('BaseTestSave')               
-    storage_url = "mysql://root:JCricklin2023@localhost/BaseTestSave"
+    storage_url = "mysql+pymysql://root:Booper2014!@localhost/BaseTestSave"
     study_name = f"Optuna_Study_Example_XGBoost"
-
+    TestConnectionDataSet('BaseTestSave')
+    start_time = time.time()
     try:
         study_XGBoost = optuna.study.load_study(study_name=study_name, storage=storage_url)
         print("Study loaded successfully.")
     except KeyError:
+        # Capture du temps de départ
+
         study_XGBoost  = optuna.create_study(
             storage=storage_url,
             direction="minimize",
@@ -945,23 +1009,32 @@ def creat_and_use_optunaStudies(x_future_scaled, x_future, train_en_transformed,
         )
 
 
+
     if len(study_XGBoost.trials) < 100 : 
-        study_XGBoost.optimize(lambda trial: objective(trial, train_en_transformed, train_en_transformed ), n_trials=100, callbacks=[print_callback])
-            # Kill connection after optimization
-            # To cancel database connection problems
-            # kill_sleeping_processes('example', 'root', 'NewPassword')
+        study_XGBoost.optimize(lambda trial: objective(trial, train_en_transformed, train_en_transformed ), n_trials=100, callbacks=[print_callback], n_jobs = 5)
+        # Kill connection after optimization
+        # To cancel database connection problems
+        # kill_sleeping_processes('example', 'root', 'NewPassword')
 
     # # Close connection
     # connection.close()
+        
+    # Capture du temps de fin
+    end_time = time.time()
+
+
+    # Calcul et affichage de la durée d'exécution
+    execution_time = end_time - start_time
+    print(f"Le temps d'exécution est de {execution_time} secondes.")
     best_params =  study_XGBoost.best_params
     
-    print(f'les meillieurs parametres sont {best_params}')
+    # print(f'les meillieurs parametres sont {best_params}')
 
     # Training a new model with best hyperparameters
     model_XgbOptimRMSE = XGBModel(
-        output_chunk_length = 10,
-        lags_past_covariates = 15,
-        lags=15,
+        output_chunk_length = 1,
+        lags_past_covariates = 7,
+        lags=7,
         verbosity = 0,
         **best_params
     )
@@ -978,26 +1051,73 @@ def creat_and_use_optunaStudies(x_future_scaled, x_future, train_en_transformed,
 def GetFeaturesInterpretationDarts(model_XgbOptimRMSE,final_df, train_en_transformed, val_en_transformed, exogenous, feature_forecast, nb_in, nombrePred): 
     combined_series = val_en_transformed[exogenous].append(feature_forecast[exogenous])
     parameters = model_XgbOptimRMSE.kwargs
-    print(parameters)
-    if parameters['booster'] == "gdtree" : 
+    # print(parameters)
+    if parameters['booster'] == "gbtree" : 
         shap_explainer = ShapExplainer(model_XgbOptimRMSE)
         results = shap_explainer.explain()
-        shap_explainer.summary_plot
+        output = results.get_explanation(component= 'QUANTITE', horizon = 1)
+
+        # shap_explainer.summary_plot()
+        # plt.savefig('shap_summary_plot.png')  # Saves the plot to a file
+        # plt.close()  # Closes the plot window to free up memory
         
     else :
-        model = 
-        results = XgBoostget_feature_importance(model,final_df, target, exogenous)
+        xgb = xgboost.XGBRegressor(parameters)
+        # Assuming final_df is your DataFrame
+
+        # Convert object columns to category or numeric as appropriate
+        categorical_columns = ['PARAM_VACANCE', 'PARAM_MARGE', 'PARAM_PLUIE']  # Example categorical columns
+        for col in categorical_columns:
+            final_df[col] = final_df[col].astype('category')
+
+        # Convert numeric columns stored as objects
+        numeric_columns_as_object = ['PARAM_PRIX_ACHAT']  # Example column that should be numeric
+        for col in numeric_columns_as_object:
+            final_df[col] = pd.to_numeric(final_df[col], errors='coerce')  # Converts to float
+
+        # Handle datetime columns
+        final_df['YEAR'] = final_df['DATE_IMPORT'].dt.year
+        final_df['MONTH'] = final_df['DATE_IMPORT'].dt.month
+        final_df['DAY'] = final_df['DATE_IMPORT'].dt.day
+        # Drop the original datetime column if it's no longer needed
+        final_df = final_df.drop(columns=['DATE_IMPORT'])
+
+        # fitting the model : (I have to watch it again)
+        xgb.fit(final_df[[x for x in final_df.columns if x != 'QUANTITE']], final_df['QUANTITE'], enable_categorical=True)
+
+        output= XgBoostget_feature_importance(xgb,final_df, final_df['QUANTITE'], exogenous)
     
-    return(results)
+    return(output)
+
+def dict_ElasticityShap(coefficients) :
+    data_array = coefficients.data_array()
+    # Initialize an empty dictionary to store the results
+    averages_dict = {}
+
+    # Loop through each component
+    for component_name in data_array['component'].values:
+        # Select the data for the current component across all time
+        component_data = data_array.sel(component=component_name)
+        
+        # Calculate the average, considering the data might have multiple samples per time step
+        # Here, we assume you want the average over both time and sample dimensions
+        average_value = component_data.mean(dim=['time', 'sample']).values.item()
+        
+        # Add the average to the dictionary, using the component name as the key
+        averages_dict[component_name] = average_value
+
+    return averages_dict 
+
+
     
 
 # Il faut que je change tout les -60 qui on peut lieu d'être pour les hypers paramêtres mais ça reste à vérifier : 
 def process_product_Darts_XGBoost(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous) :
     
-    print(len(x_future_scaled))
+    # print(len(x_future_scaled))
     nb_pred = len(x_future)
-    nb_in = 15
-    nb_out = 10
+    nb_in = 7
+    nb_out = 1
 
     #Creat a dictionary which contains all information needed 
     preds = {}
@@ -1007,7 +1127,8 @@ def process_product_Darts_XGBoost(x_future_scaled, x_future, train_en_transforme
     
     
     preds['QUANTITE_AJUSTE'] = historical_forecast_XGboost(nb_in, nb_out, model_XGboost, final_df, val_en_transformed, train_en_transformed)
-    preds['QUANTITE_0'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed,  exogenous, x_future_scaled, nb_in, nb_pred)
+    print(preds['QUANTITE_AJUSTE'])
+    preds['QUANTITE_0'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed, final_df, exogenous, x_future_scaled, nb_in, nb_pred)
     
     # We are testing the prevision for five differents prices : 
     # Remark in the Deep learning cases we have to scale the feature for each prices. 
@@ -1026,7 +1147,7 @@ def process_product_Darts_XGBoost(x_future_scaled, x_future, train_en_transforme
         x_future['PARAM_PRIX'] = [prix] * nb_pred
         #Scaling : 
         x_future_scaled = transforme_data( x_future, 'DATE_TMP')
-        preds[f'PRIX_{cpt}'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed, exogenous, x_future_scaled, nb_in, nb_pred)
+        preds[f'PRIX_{cpt}'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed, final_df, exogenous, x_future_scaled, nb_in, nb_pred)
         # x_future_scaled = rescale_data_TCN(preds, x_future)
  
  
@@ -1039,25 +1160,32 @@ def process_product_Darts_XGBoost(x_future_scaled, x_future, train_en_transforme
         x_future['PARAM_PROMO'] = [promo] * nb_pred
         #Scaling : 
         x_future_scaled = transforme_data(x_future, 'DATE_TMP')
-        preds[f'PROMO_{int(promo*100)}'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed, exogenous, x_future_scaled, nb_in, nb_pred)
+        preds[f'PROMO_{int(promo*100)}'] = model_XGB_prev(model_XGboost, train_en_transformed, val_en_transformed, final_df, exogenous, x_future_scaled, nb_in, nb_pred)
     
     coefficients = GetFeaturesInterpretationDarts(model_XGboost,final_df, train_en_transformed, val_en_transformed, exogenous, x_future_scaled, nb_in, nb_pred)
+    # print(coefficients)
     preds['ELASTICITE'] = coefficients
 
-    
-    # Convertir chaque série pandas en liste, en incluant les dates
-    preds_converted = {
-        key: [{"date": str(date), "value": value} for date, value in zip(value.index, value)] 
-        if hasattr(value, 'index') else value 
-        for key, value in preds.items()
-    }
+    ### On en a plus besoin car on le fait déjà dans le traitement des prévisions. 
+    # # Convertir chaque série pandas en liste, en incluant les dates
+    # preds_converted = {
+    #     key: [{"date": str(date), "value": value} for date, value in zip(value.index, value)] 
+    #     if hasattr(value, 'index') else value 
+    #     for key, value in preds.items()
+    # }
+
 
     # Traiter spécifiquement l'élasticité si c'est un dictionnaire ou une série pandas
     if isinstance(preds['ELASTICITE'], (dict, pd.Series)):
-        preds_converted['ELASTICITE'] = preds['ELASTICITE'].to_dict()  if isinstance(preds['ELASTICITE'], pd.Series)  else preds['ELASTICITE']
+        preds['ELASTICITE'] = preds['ELASTICITE'].to_dict()  if isinstance(preds['ELASTICITE'], pd.Series)  else preds['ELASTICITE']
 
-    preds_converted['PRIX_INTERVAL'] = vec_prix_test
+    preds['ELASTICITE'] = dict_ElasticityShap(coefficients)
+    preds['PRIX_INTERVAL'] = vec_prix_test
+    preds['OK'] = str(1)
+
+
+    # print(preds)
 
     # Convertir le dictionnaire en JSON
-    json_output = json.dumps(preds_converted, indent=4)
+    json_output = json.dumps(preds, indent=4)
     return json_output

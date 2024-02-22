@@ -338,11 +338,9 @@ def receive_data():
         #x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous = utilsTCN.process_data_TCN(request, Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
         #results = utilsTCN.process_product_TCN(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous)
         x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous = Xgboost.process_data_Darts(request, Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-        print(f'target {target}')
+        # print(f'target {target}')
         results =  Xgboost.process_product_Darts_XGBoost(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous)
-        print(f'result of our first test {results}')
-        elasticite = GetFeaturesInterpretationDarts(nb_pred, nb_in, model_XGboost, train_en_transformed, val_en_transformed, x_future_scaled, x_future, final_df,  target, exogenous)
-        print(f'elasticite {elasticite}')
+        # print(f'result of our first test {results}')
         
         # Creat a 
         # Create a Pool of procedure : (for compiutation)
