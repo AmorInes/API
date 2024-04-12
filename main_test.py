@@ -1,12 +1,13 @@
 from flask import Flask, request, jsonify
 import logging
 # test afin  de pouvoir répliquer arima
-import Xgboost
+import AllModels
 from waitress import serve
 from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, ProcessPoolExecutor, wait
 import pandas as pd
 import numpy as np
 import json
+
 
 
 
@@ -18,12 +19,14 @@ app = Flask(__name__)
 
 NB_PRIX = 5
 
-def XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json):
-    x_future, final_df, target, nb_jours, exogenous = Xgboost.process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-    results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
-    mae = json.loads(results).get('MAE')
+def Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json):
+    x_future, final_df, target, nb_jours, exogenous = AllModels.process_data(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+    results = AllModels.process_product(x_future,final_df,target,nb_jours,exogenous) 
+    # mae = json.loads(results).get('MAE')
+    errors = json.loads(results).get('ERRORS')
     error = json.loads(results).get('ERROR')
-    print(f"je suis là ! Avec le produit {Product_Id_produit_json} dans le magasin {So_Id_json} -- MAE = {mae} -- Error = {error}")
+    model = json.loads(results).get('MODEL')
+    print(f"Produit {Product_Id_produit_json} dans le magasin {So_Id_json} -- Errors = {errors} -- BestModel = {model} -- BestError = {error} ")
     return results
 
 
@@ -47,15 +50,7 @@ def receive_data2():
 
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
             
-
-        #result = XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
-        result = XGBoost_loaded_version(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
-
-        print(result)
-
-        # json_string = json.dumps(results)
-        return result,200
-
+        return  Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json) 
 
     else : 
         results = {}
@@ -78,8 +73,7 @@ def receive_data():
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
         # Create a list to store DataFrames : 
 
-        #result = XGBoost_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
-        result = XGBoost_loaded_version(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
+        result = Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json) 
 
         # json_string = json.dumps(results)
         return result,200
@@ -95,15 +89,13 @@ def receive_data():
     
 if __name__ == '__main__':
     # In the app section directly
+
+   app.debug = True
+
     with ThreadPoolExecutor(max_workers=100) as executor:
         executor.map(app.run(debug=True, host='0.0.0.0', port=5000))
 
-    
-    
-    
-# if __name__ == '__main__':
-#     # In the app section directly
-#     app.debug = False
+
     
 #     with ThreadPoolExecutor(max_workers=50) as executor:
 #         executor.map(app.run(host='0.0.0.0', port=80))

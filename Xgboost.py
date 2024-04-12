@@ -263,6 +263,7 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
     y_pred_test = XgBoostPrediction(model_test, X_test[exogenous])
 
     mae = mean_absolute_error(y_pred_test, X_test[target])
+    rmse = rmse = np.sqrt(mean_squared_error(y_pred_test, X_test[target]))
     error = float(abs(sum(y_pred_test) - sum(X_test[target])))
 
     # Forecasting with the last price
@@ -328,6 +329,7 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
 
 
     preds_converted['MAE']=mae
+    preds_converted['RMSE']=rmse
     preds_converted['ERROR']=error
 
     preds_converted['ELASTICITE'] = coefficients
