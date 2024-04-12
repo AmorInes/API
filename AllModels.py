@@ -6,9 +6,12 @@ from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSp
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import statsmodels.api as sm
 import xgboost
+import lightgbm 
+import catboost 
+import warnings
+warnings.filterwarnings("ignore", category=Warning)
 
 NB_PRIX = 5
-
 
 class XGBRegressorInt(xgboost.XGBRegressor):
         def predict(self, data):
@@ -48,14 +51,53 @@ def XgBoostRegressor(X_train, y_train):
 
     return model_xgb
 
-def XgBoostPrediction(model_xgb, X_test): 
+
+class LightBMRegressorInt(lightgbm.LGBMRegressor):
+        def predict(self, data):
+            _y = super().predict(data)
+            return np.asarray(_y, dtype=np.intc)
+
+def LightBMRegressor(X_train, y_train):
+    #LightGBM hyperparameter 
+    lgb = LightBMRegressorInt()
+
+    param_grid = {
+                'num_leaves': [8,16,32,64],  
+                'reg_lambda': [1], 
+                'min_child_samples' : [4,6,8],
+                'learning_rate': [0.03, 0.05, 0.07], #Comme pour xgboost c'est l'apport d'information après chaque arbres
+                'subsample'    : [0.6],
+                'max_depth': [3,5,7], #Profondeur maximal des arbres 
+                'n_estimators': [1000],
+                'force_row_wise': [True]  # Activer l'option force_row_wise pour la perf mémoire
+                
+        
+        }
+
+    #start = time()
+
+    tscv = TimeSeriesSplit(n_splits=5)
+    grid_lgb = GridSearchCV(lgb, param_grid,  n_jobs=-1, cv=tscv)
+    
+    grid_lgb.fit(X_train, y_train)
+    
+    # fitting the model : 
+    model_lgb =  grid_lgb.best_estimator_
+    model_lgb.fit(X_train, y_train)
+
+    return model_lgb
+
+
+
+
+
+def ModelPrediction(model, X_test): 
     # make prediction :
-    y_pred_xgboost = model_xgb.predict(X_test)
+    y_pred= model.predict(X_test)
 
-    y_pred_xgboost [y_pred_xgboost < 0] = 0
+    y_pred [y_pred < 0] = 0
 
-    return y_pred_xgboost
-
+    return y_pred
 
 def get_sign(number):
     if number > 0:
@@ -65,17 +107,26 @@ def get_sign(number):
     else:
         return 0
 
-
-def XgBoostget_feature_importance(model, final_df, target, exogenous, importance_type='gain'):
+def get_feature_importance(model, final_df, target, exogenous, importance_type='gain'):
     """
-    Get feature importance of an XGBoost model and calculate elasticity.
+    Get feature importance of an XGBoost or LightGBM model and calculate elasticity.
     """
-    # Get feature importance from XGBoost model
-    importance = model.get_booster().get_score(importance_type=importance_type)
+    if isinstance(model, XGBRegressorInt):  # Check if the model is XGBoost
+        # Get feature importance from XGBoost model
+        importance = model.get_booster().get_score(importance_type=importance_type)
+        #print(f"L'image a été téléchargée avec succès : {model}")
+    elif isinstance(model, LightBMRegressorInt):  # Check if the model is LightGBM
+        # Get feature importance from LightGBM model
+        importance_score = model.feature_importances_
+        feature_names = model.booster_.feature_name()
+        importance = {feature_names[i]: importance_score[i] for i in range(len(feature_names))}
+        #print(f"L'image a été téléchargée avec succès : {model}")
+    else:
+        raise ValueError("Model type not supported. Please provide an XGBoost or LightGBM model.")
 
     # Normalize feature importance
-    total_importance = sum(importance.values())
-    normalized_importance = {k: v / total_importance for k, v in importance.items()}
+    total_importance = sum(importance.values()) if isinstance(importance, dict) else sum(importance)
+    normalized_importance = {k: v / total_importance for k, v in importance.items()} if isinstance(importance, dict) else {exogenous[i]: importance[i] / total_importance for i in range(len(exogenous))}
 
     # Add a constant to the model (the intercept)
     X = sm.add_constant(final_df[exogenous])
@@ -91,10 +142,42 @@ def XgBoostget_feature_importance(model, final_df, target, exogenous, importance
             elasticities[feature] = elasticity
 
     # Combine feature importance with elasticity
-    combined_importance = {feature: round(normalized_importance.get(feature, 0) * get_sign(elasticities.get(feature, 0))  * 100,2)
+    combined_importance = {feature: round(normalized_importance.get(feature, 0) * get_sign(elasticities.get(feature, 0)) * 100, 2)
                            for feature in exogenous}
 
     return combined_importance
+
+
+
+# def XgBoostget_feature_importance(model, final_df, target, exogenous, importance_type='gain'):
+#     """
+#     Get feature importance of an XGBoost model and calculate elasticity.
+#     """
+#     # Get feature importance from XGBoost model
+#     importance = model.get_booster().get_score(importance_type=importance_type)
+
+#     # Normalize feature importance
+#     total_importance = sum(importance.values())
+#     normalized_importance = {k: v / total_importance for k, v in importance.items()}
+
+#     # Add a constant to the model (the intercept)
+#     X = sm.add_constant(final_df[exogenous])
+
+#     # Fit the regression model
+#     regression_model = sm.OLS(final_df[target], X).fit()
+
+#     # Calculate elasticity for each feature
+#     elasticities = {}
+#     for feature in exogenous:
+#         if feature in regression_model.params:
+#             elasticity = (regression_model.params[feature] * final_df[feature].mean()) / final_df[target].mean()
+#             elasticities[feature] = elasticity
+
+#     # Combine feature importance with elasticity
+#     combined_importance = {feature: round(normalized_importance.get(feature, 0) * get_sign(elasticities.get(feature, 0))  * 100,2)
+#                            for feature in exogenous}
+
+#     return combined_importance
 
 
 def XgBoost_elasticities(X_test, exogenous, model):
@@ -125,6 +208,7 @@ def XgBoost_elasticities(X_test, exogenous, model):
     return elasticities
 
 
+
 def split_df(x_final) : 
     nb_jour = min(90,int(len(x_final)*0.3))
     x_train = x_final[:-nb_jour]
@@ -132,11 +216,7 @@ def split_df(x_final) :
     return x_train, x_test
 
 
-
-
-
-
-def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
+def process_data(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
     ##### 
     #Il faut que face une fonction pour retraiter les données : 
     #####
@@ -206,26 +286,63 @@ def process_data_XgBoost(Product_features_json, Product_quantity_json, Product_f
 
 
 
-def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
+def process_product(x_future, final_df, target, nb_jours, exogenous):
     # Create a dictionary which contains all information needed 
     preds = {}
 
     X_train, X_test = split_df(final_df)
 
-    model_test = XgBoostRegressor(X_train[exogenous], X_train[target])
+    # Train and test XGBoost model
+    model_xgb = XgBoostRegressor(X_train[exogenous], X_train[target])
+    #print(f"best model : {model_xgb}")
 
-    y_pred_test = XgBoostPrediction(model_test, X_test[exogenous])
+    y_pred_xgb = ModelPrediction(model_xgb, X_test[exogenous])
 
-    mae = mean_absolute_error(y_pred_test, X_test[target])
-    rmse = rmse = np.sqrt(mean_squared_error(y_pred_test, X_test[target]))
-    error = float(abs(sum(y_pred_test) - sum(X_test[target])))
+    # mae_xgb = mean_absolute_error(y_pred_xgb, X_test[target])
+    # rmse_xgb = np.sqrt(mean_squared_error(y_pred_xgb, X_test[target]))
+    error_xgb = float(abs(sum(y_pred_xgb) - sum(X_test[target])))
 
-    # Forecasting with the last price
-    model = XgBoostRegressor(final_df[exogenous], final_df[target])
+    # Train and test CatBoost model
+    model_Light = LightBMRegressor(X_train[exogenous], X_train[target])
+    y_pred_Light = ModelPrediction(model_Light,X_test[exogenous])
+
+    # mae_catboost = mean_absolute_error(y_pred_Light, X_test[target])
+    # rmse_catboost = np.sqrt(mean_squared_error(y_pred_Light, X_test[target]))
+    error_Light = float(abs(sum(y_pred_Light) - sum(X_test[target])))
+
+
+    # Choose the best model based on error metric
+    errors = {
+        'xgboost': error_xgb,
+        'lightgbm': error_Light,
+    }
+
+    best_model = min(errors, key=errors.get)
+    best_error = errors[best_model]
+
+
+
+    # print("Error:", errors)
+    # print("Best model:", best_model)
+    # print("Error:", best_error)
+
 
     
-    preds['QUANTITE_AJUSTE'] = XgBoostPrediction(model, final_df[exogenous])
-    preds['QUANTITE_0'] = XgBoostPrediction(model, x_future[exogenous])
+    #Retraing the best model on all data 
+    if best_model == 'xgboost':
+        model = XgBoostRegressor(final_df[exogenous], final_df[target])
+    elif best_model == 'lightgbm':
+        model = LightBMRegressor(final_df[exogenous], final_df[target])
+  
+    #print(type(model))
+
+    # #Retraing the best model on all data 
+    # model = XgBoostRegressor(final_df[exogenous], final_df[target])
+
+
+    # Forecasting with the last price
+    preds['QUANTITE_AJUSTE'] = ModelPrediction(model, final_df[exogenous])
+    preds['QUANTITE_0'] = ModelPrediction(model, x_future[exogenous])
     
     
     # Some variation test
@@ -241,14 +358,14 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
     for prix in vec_prix_test: 
         cpt += 1
         x_future['PARAM_PRIX'] = [prix] * nb_jours
-        preds[f'PRIX_{cpt}'] = XgBoostPrediction(model, x_future[exogenous])
+        preds[f'PRIX_{cpt}'] = ModelPrediction(model, x_future[exogenous])
     
     x_future['PARAM_PRIX'] = [last_price] * nb_jours 
 
     # Change prediction values with the promotion value
     for promo in vec_promo_test: 
         x_future['PARAM_PROMO'] = [promo] * nb_jours
-        preds[f'PROMO_{int(promo * 100)}'] = XgBoostPrediction(model, x_future[exogenous])
+        preds[f'PROMO_{int(promo * 100)}'] = ModelPrediction(model, x_future[exogenous])
         
     
     
@@ -273,18 +390,20 @@ def process_product_Xgboost(x_future, final_df, target, nb_jours, exogenous):
                 preds_converted[key] = list_dic_values
 
 
-    coefficients = XgBoostget_feature_importance(model,final_df, target, exogenous)
+    coefficients = get_feature_importance(model,final_df, target, exogenous)
 
 
 
     # x_train, x_test = split_df(final_df)
-    # model_elasticity = XgBoostRegressor(x_train[exogenous], x_train[target])
-    # coefficients = XgBoost_elasticities(x_test, exogenous, model_elasticity)
+    # model_elasticity = XgBoostRegressor(X_train[exogenous], X_train[target])
+    # coefficients = XgBoost_elasticities(X_test, exogenous, model_elasticity)
 
 
-    preds_converted['MAE']=mae
-    preds_converted['RMSE']=rmse
-    preds_converted['ERROR']=error
+    # preds_converted['MAE']=mae
+    # preds_converted['RMSE']=rmse
+    preds_converted['ERRORS']=errors
+    preds_converted['ERROR']=best_error
+    preds_converted['MODEL']=best_model
 
     preds_converted['ELASTICITE'] = coefficients
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
