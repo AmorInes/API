@@ -3,6 +3,7 @@ import numpy as np
 import json
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
 from lightgbm import LGBMRegressor
+from darts import TimeSeries
 
 NB_PRIX = 5
 

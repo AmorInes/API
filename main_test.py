@@ -30,6 +30,14 @@ def Model_direct(Product_features_json, Product_quantity_json, Product_future_fe
     return results
 
 
+def XGBoost_loaded_version(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) : 
+    x_future, final_df, target, nb_jours, exogenous = Xgboost.process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+    print(Product_Id_produit_json)
+    results = Xgboost.process_product_XgboostII(x_future,final_df,target,nb_jours,exogenous, Product_Id_produit_json) 
+    print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
+    return results
+
+
 @app.route('/api/modelbooper/prixpermanent/user', methods=['POST'])
 def receive_data2():
 
@@ -64,7 +72,9 @@ def receive_data():
 
     if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
         # Create a list to store DataFrames : 
+
         result = Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json) 
+
         # json_string = json.dumps(results)
         return result,200
 
@@ -75,12 +85,17 @@ def receive_data():
         json_string = json.dumps(results)
         return json_string 
  
-    
-    
+
     
 if __name__ == '__main__':
     # In the app section directly
-    app.debug = True
+
+   app.debug = True
+
+    with ThreadPoolExecutor(max_workers=100) as executor:
+        executor.map(app.run(debug=True, host='0.0.0.0', port=5000))
+
+
     
-    with ThreadPoolExecutor(max_workers=50) as executor:
-        executor.map(app.run(host='0.0.0.0', port=80))
+#     with ThreadPoolExecutor(max_workers=50) as executor:
+#         executor.map(app.run(host='0.0.0.0', port=80))

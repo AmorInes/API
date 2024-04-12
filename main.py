@@ -326,18 +326,23 @@ def receive_data():
         
         
         # data processing of tree based model : 
-        x_future, final_df, target, nb_jours, exogenous = process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-        # Result of tree based forcasting :
+        # x_future, final_df, target, nb_jours, exogenous = process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+        # # Result of tree based forcasting :
         # # results = LightGbm.process_product_LightGBM(x_future,final_df,target,nb_jours,exogenous) 
-        results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
+        # results = Xgboost.process_product_Xgboost(x_future,final_df,target,nb_jours,exogenous) 
         # results = RForest.process_product_RandomForest(x_future,final_df,target,nb_jours,exogenous) 
         # results = CatBoost.process_product_CATBoost(x_future, final_df, target, nb_jours, exogenous)
         #print(results['QUANTITE_0'])
 
-        # Create an exemple with TCN model :
+        # Create an exemple with Darts Models :
         #x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous = utilsTCN.process_data_TCN(request, Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
         #results = utilsTCN.process_product_TCN(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous)
+        x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous = Xgboost.process_data_Darts(request, Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+        # print(f'target {target}')
+        results =  Xgboost.process_product_Darts_XGBoost(x_future_scaled, x_future, train_en_transformed, val_en_transformed, final_df, target, exogenous)
+        # print(f'result of our first test {results}')
         
+        # Creat a 
         # Create a Pool of procedure : (for compiutation)
         # with ThreadPoolExecutor(max_workers=10) as executor:
         #     print(f'Received len {len(Product_Id_produit_json)}')
