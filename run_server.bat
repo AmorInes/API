@@ -1,2 +1,1 @@
-call env\Scripts\activate
-call waitress-serve --listen=127.0.0.1:80 --thread=12 main_test:app
+waitress-serve --listen=57.128.80.162:80 --thread=12 main_test:app

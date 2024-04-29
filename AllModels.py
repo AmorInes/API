@@ -139,6 +139,13 @@ def get_feature_importance(model, final_df, target, exogenous, importance_type='
     for feature in exogenous:
         if feature in regression_model.params:
             elasticity = (regression_model.params[feature] * final_df[feature].mean()) / final_df[target].mean()
+            #mettre electicité prix >0 nulle 
+            if feature == 'PARAM_PRIX' and elasticity > 0:
+                elasticity = 0
+            if feature == 'PARAM_PROMO' and elasticity < 0: 
+                elasticity = 0
+            if 'PARAM_CONC_' in feature and elasticity < 0: 
+                elasticity = 0
             elasticities[feature] = elasticity
 
     # Combine feature importance with elasticity
@@ -320,7 +327,10 @@ def process_product(x_future, final_df, target, nb_jours, exogenous):
     best_model = min(errors, key=errors.get)
     best_error = errors[best_model]
 
-
+    # if sum(X_test[target]) != 0 : 
+    #     com_error = (best_error/sum(X_test[target]))*100
+    # else:
+    #     com_error = 0 
 
     # print("Error:", errors)
     # print("Best model:", best_model)
@@ -403,6 +413,8 @@ def process_product(x_future, final_df, target, nb_jours, exogenous):
     # preds_converted['RMSE']=rmse
     preds_converted['ERRORS']=errors
     preds_converted['ERROR']=best_error
+
+    # preds_converted['COM_ERROR']= com_error
     preds_converted['MODEL']=best_model
 
     preds_converted['ELASTICITE'] = coefficients

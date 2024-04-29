@@ -19,23 +19,24 @@ app = Flask(__name__)
 
 NB_PRIX = 5
 
-def Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json):
+def Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json):
     x_future, final_df, target, nb_jours, exogenous = AllModels.process_data(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
     results = AllModels.process_product(x_future,final_df,target,nb_jours,exogenous) 
     # mae = json.loads(results).get('MAE')
     errors = json.loads(results).get('ERRORS')
     error = json.loads(results).get('ERROR')
+    # com_eroor = json.loads(results).get('COM_ERROR')
     model = json.loads(results).get('MODEL')
-    print(f"Produit {Product_Id_produit_json} dans le magasin {So_Id_json} -- Errors = {errors} -- BestModel = {model} -- BestError = {error} ")
+    print(f"Produit {Product_Id_produit_json} -- Errors = {errors} -- BestModel = {model} -- BestError = {error}")
     return results
 
 
-def XGBoost_loaded_version(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) : 
-    x_future, final_df, target, nb_jours, exogenous = Xgboost.process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-    print(Product_Id_produit_json)
-    results = Xgboost.process_product_XgboostII(x_future,final_df,target,nb_jours,exogenous, Product_Id_produit_json) 
-    print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
-    return results
+# def XGBoost_loaded_version(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) : 
+#     x_future, final_df, target, nb_jours, exogenous = Xgboost.process_data_XgBoost(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+#     print(Product_Id_produit_json)
+#     results = Xgboost.process_product_XgboostII(x_future,final_df,target,nb_jours,exogenous, Product_Id_produit_json) 
+#     print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
+#     return results
 
 
 @app.route('/api/modelbooper/prixpermanent/user', methods=['POST'])
@@ -45,12 +46,14 @@ def receive_data2():
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
-    So_Id_json = request.json['ID_SO']
+    # So_Id_json = request.json['ID_SO']
+    # Tarif_Id_json = request.json['ID_TARIF']
 
 
-    if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
+
+    if len(Product_features_json) >6 and len(Product_quantity_json) >6 : 
             
-        return  Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json) 
+        return  Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
 
     else : 
         results = {}
@@ -67,13 +70,13 @@ def receive_data():
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
-    So_Id_json = request.json['ID_SO']
+    # So_Id_json = request.json['ID_SO']
 
 
-    if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
+    if len(Product_features_json) > 6 and len(Product_quantity_json) > 6 : 
         # Create a list to store DataFrames : 
 
-        result = Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json, So_Id_json) 
+        result = Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) 
 
         # json_string = json.dumps(results)
         return result,200
@@ -90,10 +93,11 @@ def receive_data():
 if __name__ == '__main__':
     # In the app section directly
 
-   app.debug = True
 
-    with ThreadPoolExecutor(max_workers=100) as executor:
-        executor.map(app.run(debug=True, host='0.0.0.0', port=5000))
+    app.debug = True
+    
+    with ThreadPoolExecutor(max_workers=50) as executor:
+        executor.map(app.run(host='0.0.0.0', port=80))
 
 
     
