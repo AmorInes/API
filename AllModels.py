@@ -8,7 +8,11 @@ import statsmodels.api as sm
 import xgboost
 import lightgbm 
 import catboost 
+import oracledb
 import warnings
+import ast
+from datetime import datetime, timedelta
+
 warnings.filterwarnings("ignore", category=Warning)
 
 NB_PRIX = 5
@@ -17,10 +21,6 @@ class XGBRegressorInt(xgboost.XGBRegressor):
         def predict(self, data):
             _y = super().predict(data)
             return np.asarray(_y, dtype=np.intc)
-
-    
-
-
 
 def XgBoostRegressor(X_train, y_train):
     #XGBOOSTRegressor hyperparameters :
@@ -49,7 +49,7 @@ def XgBoostRegressor(X_train, y_train):
     # fitting the model : 
     model_xgb.fit(X_train, y_train)
 
-    return model_xgb
+    return model_xgb, grid_xgb.best_params_
 
 
 class LightBMRegressorInt(lightgbm.LGBMRegressor):
@@ -85,9 +85,102 @@ def LightBMRegressor(X_train, y_train):
     model_lgb =  grid_lgb.best_estimator_
     model_lgb.fit(X_train, y_train)
 
+    return model_lgb, grid_lgb.best_params_
+
+
+def GETLightBMRegressor(X_train, y_train, best_hyperparam):
+
+    #LightGBM hyperparameter 
+    lgb = LightBMRegressorInt(**best_hyperparam)
+    model_lgb = lgb.fit(X_train, y_train)
+
     return model_lgb
 
 
+
+def GETXgboostRegressor(X_train, y_train, best_hyperparam):
+    #LightGBM hyperparameter 
+    xgb = XGBRegressorInt(**best_hyperparam)
+    model_xgb = xgb.fit(X_train, y_train)
+
+    return model_xgb
+
+
+def GET_Date_Product(id_produit, id_so, connection):
+
+    with connection.cursor() as cursor:
+        query = f"""SELECT MAX(Date_Entrainement) AS Derniere_Date
+                        FROM TRAIN_HISTORIC
+                        WHERE id_produit = {id_produit} AND id_so = {id_so}"""
+
+        cursor.execute(query)
+        last_calc_date = cursor.fetchone()
+        if not last_calc_date:
+            print("Produit non trouvé.")
+            return None
+
+        return last_calc_date[0]
+    
+def useHyperParamII(features_model, param_model):
+
+    features_Model_str = features_model
+    Param_Model_str = param_model
+    # print(f"dictionaire hyper {Param_Model_str}")
+    # print(f"listfeatrue type {type(features_Model_str)} dictionaire hyper {type(Param_Model_str)}")
+
+    actual_features_list = ast.literal_eval(features_Model_str)
+    actual_Param_Model = ast.literal_eval(Param_Model_str)
+    # params_json = json.dumps(Param_Model_str, defaul=str)
+
+    # print(params_json)
+
+    # d = json.loads(Param_Model_str)
+    # print(d)
+
+
+    print(f"listfeatrue type {type(actual_features_list)} dictionaire hyper {type(actual_Param_Model)}")
+   
+    return actual_features_list, actual_Param_Model
+
+
+def useHyperParam(param_model):
+
+    Param_Model_str = param_model
+    print(f" dictionaire hyper {Param_Model_str}")
+
+    # actual_features_list = ast.literal_eval(features_Model_str)
+    actual_Param_Model = ast.literal_eval(Param_Model_str)
+
+    print(f"dictionaire hyper {type(actual_Param_Model)}")
+    return actual_Param_Model
+
+def useHyperParamIII(features_model, param_model):
+
+    features_Model_str = features_model
+    Param_Model_str = param_model
+    print(f"dictionaire hyper {Param_Model_str}")
+    # print(f"listfeatrue type {type(features_Model_str)} dictionaire hyper {type(Param_Model_str)}")
+
+    actual_features_list = ast.literal_eval(features_Model_str)
+    # actual_Param_Model = ast.literal_eval(Param_Model_str)
+
+    params_json = json.dumps(Param_Model_str, default=str) 
+    d = json.loads(params_json)
+    # actual_Param_Model = {k: (float('nan') if v == '__NaN__' else v) for k, v in d.items()}
+    filtered_params = {k: v for k, v in Param_Model_str.items() if v is not None}
+
+    print(f"listfeatrue type {type(actual_features_list)} dictionaire hyper {type(filtered_params)}")
+   
+    return actual_features_list, filtered_params
+
+
+def check_table_exists(connection, table_name):
+    with connection.cursor() as cursor:
+        query = "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :table_name"
+        cursor.execute(query, table_name = table_name.upper())
+
+        (count,) = cursor.fetchone()
+        return count > 0
 
 
 
@@ -142,9 +235,9 @@ def get_feature_importance(model, final_df, target, exogenous, importance_type='
             #mettre electicité prix >0 nulle 
             if feature == 'PARAM_PRIX' and elasticity > 0:
                 elasticity = 0
-            if feature == 'PARAM_PROMO' and elasticity < 0: 
+            if 'PARAM_PROMO' in feature and elasticity < 0: 
                 elasticity = 0
-            if 'PARAM_CONC_' in feature and elasticity < 0: 
+            if 'PARAM_CONC' in feature and elasticity < 0: 
                 elasticity = 0
             elasticities[feature] = elasticity
 
@@ -156,35 +249,88 @@ def get_feature_importance(model, final_df, target, exogenous, importance_type='
 
 
 
-# def XgBoostget_feature_importance(model, final_df, target, exogenous, importance_type='gain'):
-#     """
-#     Get feature importance of an XGBoost model and calculate elasticity.
-#     """
-#     # Get feature importance from XGBoost model
-#     importance = model.get_booster().get_score(importance_type=importance_type)
+def save_intheOracleBase(model_name, id_produit, id_so, current_date, Date_Import, bestHyperParams, bestFeatures, Rmse_model, connection) : 
 
-#     # Normalize feature importance
-#     total_importance = sum(importance.values())
-#     normalized_importance = {k: v / total_importance for k, v in importance.items()}
+    # Constructing column names and placeholders for the SQL query
+    bestHyperParams_str = str(bestHyperParams)
+    bestFeatures_str = str(list(bestFeatures))
+    nb_caractHyperParams = len(bestHyperParams_str)
+    nb_caractFeature = len(bestFeatures_str) 
+    save_quality = 1  
 
-#     # Add a constant to the model (the intercept)
-#     X = sm.add_constant(final_df[exogenous])
+    try:
+        with connection.cursor() as cursor:
+            # SQL query to insert into the dynamically named table
+            # query = f"INSERT INTO TRAIN_HISTORIC  ( id_produit, ID_SO, DATE_IMPORT, Date_Entrainement, Model_Name, PARAM_MODEL, features_Model, RMSE_TRAIN, Product_ID_TARIF) VALUES (:IDProduit, :IDSo, :DATE_IMPORT, :DATE_UPDATE_request, :NomModel, :bestHyperParams, :bestFeatures, :RMSE_TRAIN, :Product_ID_TARIF)"
+            query = f"INSERT INTO TRAIN_HISTORIC  (id_produit, ID_SO, DATE_IMPORT, Date_Entrainement, Model_Name, PARAM_MODEL, features_Model, RMSE_TRAIN) VALUES (:IDProduit, :IDSo, :DATE_IMPORT, :DATE_UPDATE_request, :NomModel,:bestHyperParams, :bestFeatures, :RMSE_TRAIN)"
 
-#     # Fit the regression model
-#     regression_model = sm.OLS(final_df[target], X).fit()
+            # Prepare values for the dynamic part of the query
+                            # Prepare values for the dynamic part of the query
+            values = {
+                'IDProduit': int(id_produit),
+                'IDSo': int(id_so),
+                'DATE_IMPORT': Date_Import,
+                'DATE_UPDATE_request': current_date,
+                'NomModel': model_name,
+                'bestHyperParams': bestHyperParams_str,
+                'bestFeatures': bestFeatures_str,
+                'RMSE_TRAIN': float(Rmse_model)
+                # 'Product_ID_TARIF': int(Product_ID_TARIF)
+            }
+            
+            # Execute the query
+            cursor.execute(query, values)
 
-#     # Calculate elasticity for each feature
-#     elasticities = {}
-#     for feature in exogenous:
-#         if feature in regression_model.params:
-#             elasticity = (regression_model.params[feature] * final_df[feature].mean()) / final_df[target].mean()
-#             elasticities[feature] = elasticity
+            # Commit the transaction
+            connection.commit()
+    except oracledb.DatabaseError as e:
+            print(f"Failed to save model data due to a database error: {e}")
+            connection.rollback()
+            raise
 
-#     # Combine feature importance with elasticity
-#     combined_importance = {feature: round(normalized_importance.get(feature, 0) * get_sign(elasticities.get(feature, 0))  * 100,2)
-#                            for feature in exogenous}
 
-#     return combined_importance
+
+def load_from_OracleBase(id_produit, id_so, connection):
+    try:
+        with connection.cursor() as cursor:
+            query = """
+                SELECT *
+                FROM TRAIN_HISTORIC
+                WHERE DATE_ENTRAINEMENT = (
+                    SELECT MAX(DATE_ENTRAINEMENT)
+                    FROM TRAIN_HISTORIC
+                    WHERE ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
+                )
+                AND RMSE_TRAIN = (
+                    SELECT MIN(RMSE_TRAIN)
+                    FROM TRAIN_HISTORIC
+                    WHERE DATE_ENTRAINEMENT = (
+                        SELECT MAX(DATE_ENTRAINEMENT)
+                        FROM TRAIN_HISTORIC
+                        WHERE ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
+                    )
+                )
+                AND ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
+            """
+            values = {
+                'IDProduit': id_produit,
+                'IDSo': id_so,
+            }
+            cursor.execute(query, values)
+            rows = cursor.fetchall()  # Fetch all matching rows
+
+            if rows:
+                headers = [i[0] for i in cursor.description]
+                df_temp = pd.DataFrame(rows, columns=headers)
+                print("Most recent model loaded successfully.")
+                return df_temp
+            else:
+                print("No data found for the specified criteria.")
+                return pd.DataFrame()  # Return an empty DataFrame
+
+    except oracledb.DatabaseError as e:
+        print(f"Database error occurred: {e}")
+        return None
 
 
 def XgBoost_elasticities(X_test, exogenous, model):
@@ -221,6 +367,46 @@ def split_df(x_final) :
     x_train = x_final[:-nb_jour]
     x_test = x_final[-nb_jour:]
     return x_train, x_test
+
+
+
+
+def ModelChoice(final_df, exogenous, target) : 
+    X_train, X_test = split_df(final_df)
+
+    model_xgb, best_params  = XgBoostRegressor(X_train[exogenous], X_train[target])
+    y_pred_xgb = ModelPrediction(model_xgb, X_test[exogenous])
+    error_xgb = float(abs(sum(y_pred_xgb) - sum(X_test[target])))
+
+
+    model_Light, best_params  = LightBMRegressor(X_train[exogenous], X_train[target])
+    y_pred_Light = ModelPrediction(model_Light,X_test[exogenous])
+
+    error_Light = float(abs(sum(y_pred_Light) - sum(X_test[target])))
+
+
+    # Choose the best model based on error metric
+    errors = {
+        'xgboost': error_xgb,
+        'lightgbm': error_Light,
+    }
+
+    best_model = min(errors, key=errors.get)
+    best_error = errors[best_model]
+
+
+    
+    #Retraing the best model on all data 
+    if best_model == 'xgboost':
+        model, best_params = XgBoostRegressor(final_df[exogenous], final_df[target])
+    elif best_model == 'lightgbm':
+        model,best_params = LightBMRegressor(final_df[exogenous], final_df[target])
+    
+    return best_model, model, best_error, best_params
+
+
+
+
 
 
 def process_data(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
@@ -289,65 +475,132 @@ def process_data(Product_features_json, Product_quantity_json, Product_future_fe
     # Drop any columns that still have object dtype
     final_df = final_df.select_dtypes(exclude=['object'])
 
-    return x_future, final_df, target, nb_jours, exogenous
+    return x_future, final_df, target, nb_jours, exogenous 
 
 
 
-def process_product(x_future, final_df, target, nb_jours, exogenous):
+
+def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous, id_produit, id_so, date_import, model_name, feature_Model, parm_model):
+
     # Create a dictionary which contains all information needed 
     preds = {}
 
-    X_train, X_test = split_df(final_df)
 
-    # Train and test XGBoost model
-    model_xgb = XgBoostRegressor(X_train[exogenous], X_train[target])
-    #print(f"best model : {model_xgb}")
+    # list_featureModel = feature_Model
+    list_featureModel, dic_parm_model = useHyperParamII(feature_Model,parm_model)
 
-    y_pred_xgb = ModelPrediction(model_xgb, X_test[exogenous])
-
-    # mae_xgb = mean_absolute_error(y_pred_xgb, X_test[target])
-    # rmse_xgb = np.sqrt(mean_squared_error(y_pred_xgb, X_test[target]))
-    error_xgb = float(abs(sum(y_pred_xgb) - sum(X_test[target])))
-
-    # Train and test CatBoost model
-    model_Light = LightBMRegressor(X_train[exogenous], X_train[target])
-    y_pred_Light = ModelPrediction(model_Light,X_test[exogenous])
-
-    # mae_catboost = mean_absolute_error(y_pred_Light, X_test[target])
-    # rmse_catboost = np.sqrt(mean_squared_error(y_pred_Light, X_test[target]))
-    error_Light = float(abs(sum(y_pred_Light) - sum(X_test[target])))
-
-
-    # Choose the best model based on error metric
-    errors = {
-        'xgboost': error_xgb,
-        'lightgbm': error_Light,
-    }
-
-    best_model = min(errors, key=errors.get)
-    best_error = errors[best_model]
-
-    # if sum(X_test[target]) != 0 : 
-    #     com_error = (best_error/sum(X_test[target]))*100
-    # else:
-    #     com_error = 0 
-
-    # print("Error:", errors)
-    # print("Best model:", best_model)
-    # print("Error:", best_error)
-
-
-    
+    final_features = [i for i in list_featureModel if i != 'QUANTITE']     
     #Retraing the best model on all data 
-    if best_model == 'xgboost':
-        model = XgBoostRegressor(final_df[exogenous], final_df[target])
-    elif best_model == 'lightgbm':
-        model = LightBMRegressor(final_df[exogenous], final_df[target])
-  
-    #print(type(model))
+    if model_name == 'xgboost':
+        model = GETXgboostRegressor(final_df[final_features], final_df[target], dic_parm_model)
+    elif model_name  == 'lightgbm':
+        model = GETLightBMRegressor(final_df[final_features], final_df[target], dic_parm_model)
 
-    # #Retraing the best model on all data 
-    # model = XgBoostRegressor(final_df[exogenous], final_df[target])
+
+    # Forecasting with the last price
+    preds['QUANTITE_AJUSTE'] = ModelPrediction(model, final_df[final_features])
+    preds['QUANTITE_0'] = ModelPrediction(model, x_future[final_features])
+    
+    
+    # Some variation test
+    prix_min = min(final_df['PARAM_PRIX'])
+    prix_max = max(final_df['PARAM_PRIX'])
+    last_price = final_df['PARAM_PRIX'].iloc[-1]
+
+    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(NB_PRIX)]
+    # print(vec_prix_test)
+    vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
+    
+    # Change prediction values with the price
+    cpt = 0
+    for prix in vec_prix_test: 
+        cpt += 1
+        x_future['PARAM_PRIX'] = [prix] * nb_jours
+        preds[f'PRIX_{cpt}'] = ModelPrediction(model, x_future[final_features])
+    
+    x_future['PARAM_PRIX'] = [last_price] * nb_jours 
+
+    # Change prediction values with the promotion value
+    for promo in vec_promo_test: 
+        x_future['PARAM_PROMO'] = [promo] * nb_jours
+        preds[f'PROMO_{int(promo * 100)}'] = ModelPrediction(model, x_future[final_features])
+        
+    
+    
+    # Convert predictions to the desired format
+    preds_converted = {}
+    for key, values in preds.items():
+        if key != 'QUANTITE_AJUSTE' : 
+            # Check if 'values' is a list or numpy array
+            if isinstance(values, (list, np.ndarray)):
+                list_dic_values = []
+                for date, value in zip(x_future.index, values):
+                    date_value = {"date": str(date), "value": str(value)}
+                    list_dic_values.append(date_value)
+                preds_converted[key] = list_dic_values
+
+        else : 
+            if isinstance(values, (list, np.ndarray)):
+                list_dic_values = []
+                for date, value in zip(final_df.index, values):
+                    date_value = {"date": str(date), "value": str(value)}
+                    list_dic_values.append(date_value)
+                preds_converted[key] = list_dic_values
+
+
+    coefficients = get_feature_importance(model,final_df, target, final_features)
+
+
+
+    # X_train, X_test = split_df(final_df)
+    # model_elasticity = XgBoostRegressor(X_train[exogenous], X_train[target])
+    # coefficients = XgBoost_elasticities(X_test, exogenous, model_elasticity)
+
+
+    # # preds_converted['MAE']=mae
+    # # preds_converted['RMSE']=rmse
+    # preds_converted['ERRORS']=errors
+    # preds_converted['ERROR']=best_error
+
+    # # preds_converted['COM_ERROR']= com_error
+    # preds_converted['MODEL']=best_model
+
+    preds_converted['ELASTICITE'] = coefficients
+    preds_converted['PRIX_INTERVAL'] = vec_prix_test
+    preds_converted['OK'] = str(1)
+
+
+
+    # # Convert the dictionary to JSON
+    json_output = json.dumps(preds_converted)
+
+    return json_output
+
+
+
+
+
+
+def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous, id_produit, id_so, date_import):
+    # Create a dictionary which contains all information needed 
+    preds = {}
+    current_date = datetime.now()
+
+    # if GET_Date_Product(id_produit, id_so, connection) is not None :
+    #     Date_Import = GET_Date_Product(id_produit, id_so, connection)
+    # else : 
+    #     Date_Import = current_date
+
+
+    best_model, model, best_error, best_param = ModelChoice(final_df, exogenous, target)
+    bestFeatures = exogenous
+    # bestHyperParams = model.get_params()
+    # print(f"best type {bestHyperParams}")
+    # print(f"best param grid {best_param}") 
+    # model.set_params(bestHyperParams)
+    
+    # save_intheOracleBase(best_model, id_produit, id_so, current_date, date_import, bestHyperParams, bestFeatures, best_error)
+
 
 
     # Forecasting with the last price
@@ -361,11 +614,13 @@ def process_product(x_future, final_df, target, nb_jours, exogenous):
     last_price = final_df['PARAM_PRIX'].iloc[-1]
 
     vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(NB_PRIX)]
+    # print(vec_prix_test)
     vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
     
     # Change prediction values with the price
     cpt = 0
     for prix in vec_prix_test: 
+        # print(prix)
         cpt += 1
         x_future['PARAM_PRIX'] = [prix] * nb_jours
         preds[f'PRIX_{cpt}'] = ModelPrediction(model, x_future[exogenous])
@@ -402,23 +657,23 @@ def process_product(x_future, final_df, target, nb_jours, exogenous):
 
     coefficients = get_feature_importance(model,final_df, target, exogenous)
 
+    bestHyperParams_str = str(best_param)
+    bestFeatures_str = str(list(bestFeatures))
 
+    preds_converted["MAE_LAST_MONTH"] = None 
+    preds_converted["RMSE_TRAIN"] = best_error
+    preds_converted["FEATURES_MODEL"] = bestFeatures_str
+    preds_converted["PARAM_MODEL"] = bestHyperParams_str
+    preds_converted["MODEL_NAME"] = best_model
+    # preds_converted["DATE_IMPORT"] = date_import
 
-    # x_train, x_test = split_df(final_df)
-    # model_elasticity = XgBoostRegressor(X_train[exogenous], X_train[target])
-    # coefficients = XgBoost_elasticities(X_test, exogenous, model_elasticity)
-
-
-    # preds_converted['MAE']=mae
-    # preds_converted['RMSE']=rmse
-    preds_converted['ERRORS']=errors
     preds_converted['ERROR']=best_error
 
     # preds_converted['COM_ERROR']= com_error
     preds_converted['MODEL']=best_model
-
     preds_converted['ELASTICITE'] = coefficients
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
+
     preds_converted['OK'] = str(1)
 
 
@@ -429,10 +684,5 @@ def process_product(x_future, final_df, target, nb_jours, exogenous):
 
 
     return json_output
-
-
-
-
-
 
 
