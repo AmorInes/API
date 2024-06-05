@@ -7,15 +7,13 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 import statsmodels.api as sm
 import xgboost
 import lightgbm 
-import catboost 
-import oracledb
 import warnings
 import ast
 from datetime import datetime, timedelta
-
+import time
 warnings.filterwarnings("ignore", category=Warning)
 
-NB_PRIX = 5
+NB_PRIX = 6
 
 class XGBRegressorInt(xgboost.XGBRegressor):
         def predict(self, data):
@@ -27,7 +25,8 @@ def XgBoostRegressor(X_train, y_train):
     xgb = XGBRegressorInt()
     param_grid = { 
                 'objective':['reg:squarederror'],
-                'learning_rate' : [0.03,0.05,0.07],
+                # 'learning_rate' : [0.03,0.05,0.07],
+                'learning_rate' : [0.03],
                 'reg_lambda': [1],
                 'n_estimators' : [1000],
                 'max_depth':[3,5,7],
@@ -35,19 +34,42 @@ def XgBoostRegressor(X_train, y_train):
                 'gamma' : [0],
                 'colsample_bytree':[0.8],
                 #'nthread' : [4],
-                'eval_metric' : ['mae'], 
+                # 'eval_metric' : ['mae'], 
     }
 
 
     # finding the best estimator :
-    tscv = TimeSeriesSplit(n_splits=5)
+    # start_time = datetime.now()
+
+    tscv = TimeSeriesSplit(n_splits=3)
     grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=-1, cv=tscv)
-    grid_xgb.fit(X_train, y_train)
+    
+    # grid_xgb.fit(X_train, y_train)
+    # Set the maximum execution time in seconds
+    max_time = 20
+
+    start_time = time.time()
+    while (time.time() - start_time) < max_time:
+        try:
+            grid_xgb.fit(X_train, y_train)
+            break  # Exit the loop if fit completes within the time limit
+        except TimeoutError:
+            pass  # Handle timeout gracefully (optional)
+
+    # Check if fitting completed within the time limit
+    if (time.time() - start_time) >= max_time:
+        print("GridSearchCV XGB fitting timed out after", max_time, "seconds.")
+
+
+
     model_xgb =  grid_xgb.best_estimator_
-
-
     # fitting the model : 
     model_xgb.fit(X_train, y_train)
+
+
+    # end_time = datetime.now()
+    # elapsed_time = end_time - start_time
+    # print("Temps écoulé XBG:", elapsed_time)
 
     return model_xgb, grid_xgb.best_params_
 
@@ -65,7 +87,8 @@ def LightBMRegressor(X_train, y_train):
                 'num_leaves': [8,16,32,64],  
                 'reg_lambda': [1], 
                 'min_child_samples' : [4,6,8],
-                'learning_rate': [0.03, 0.05, 0.07], #Comme pour xgboost c'est l'apport d'information après chaque arbres
+                # 'learning_rate' : [0.03,0.05,0.07],
+                'learning_rate': [0.03], #Comme pour xgboost c'est l'apport d'information après chaque arbres
                 'subsample'    : [0.6],
                 'max_depth': [3,5,7], #Profondeur maximal des arbres 
                 'n_estimators': [1000],
@@ -74,16 +97,32 @@ def LightBMRegressor(X_train, y_train):
         
         }
 
-    #start = time()
-
-    tscv = TimeSeriesSplit(n_splits=5)
+    # start_time = datetime.now()
+    tscv = TimeSeriesSplit(n_splits=3)
     grid_lgb = GridSearchCV(lgb, param_grid,  n_jobs=-1, cv=tscv)
     
-    grid_lgb.fit(X_train, y_train)
-    
+    # grid_lgb.fit(X_train, y_train)
+    # Set the maximum execution time in seconds
+    max_time = 20
+
+    start_time = time.time()
+    while (time.time() - start_time) < max_time:
+        try:
+            grid_lgb.fit(X_train, y_train)
+            break  # Exit the loop if fit completes within the time limit
+        except TimeoutError:
+            pass  # Handle timeout gracefully (optional)
+
+    # Check if fitting completed within the time limit
+    if (time.time() - start_time) >= max_time:
+        print("GridSearchCV LGM fitting timed out after", max_time, "seconds.")
+
     # fitting the model : 
     model_lgb =  grid_lgb.best_estimator_
     model_lgb.fit(X_train, y_train)
+    # end_time = datetime.now()
+    # elapsed_time = end_time - start_time
+    # print("Temps écoulé LBM:", elapsed_time)
 
     return model_lgb, grid_lgb.best_params_
 
@@ -138,49 +177,49 @@ def useHyperParamII(features_model, param_model):
     # print(d)
 
 
-    print(f"listfeatrue type {type(actual_features_list)} dictionaire hyper {type(actual_Param_Model)}")
+    # print(f"listfeatrue type {type(actual_features_list)} dictionaire hyper {type(actual_Param_Model)}")
    
     return actual_features_list, actual_Param_Model
 
 
-def useHyperParam(param_model):
+# def useHyperParam(param_model):
 
-    Param_Model_str = param_model
-    print(f" dictionaire hyper {Param_Model_str}")
+#     Param_Model_str = param_model
+#     print(f" dictionaire hyper {Param_Model_str}")
 
-    # actual_features_list = ast.literal_eval(features_Model_str)
-    actual_Param_Model = ast.literal_eval(Param_Model_str)
+#     # actual_features_list = ast.literal_eval(features_Model_str)
+#     actual_Param_Model = ast.literal_eval(Param_Model_str)
 
-    print(f"dictionaire hyper {type(actual_Param_Model)}")
-    return actual_Param_Model
+#     print(f"dictionaire hyper {type(actual_Param_Model)}")
+#     return actual_Param_Model
 
-def useHyperParamIII(features_model, param_model):
+# def useHyperParamIII(features_model, param_model):
 
-    features_Model_str = features_model
-    Param_Model_str = param_model
-    print(f"dictionaire hyper {Param_Model_str}")
-    # print(f"listfeatrue type {type(features_Model_str)} dictionaire hyper {type(Param_Model_str)}")
+#     features_Model_str = features_model
+#     Param_Model_str = param_model
+#     print(f"dictionaire hyper {Param_Model_str}")
+#     # print(f"listfeatrue type {type(features_Model_str)} dictionaire hyper {type(Param_Model_str)}")
 
-    actual_features_list = ast.literal_eval(features_Model_str)
-    # actual_Param_Model = ast.literal_eval(Param_Model_str)
+#     actual_features_list = ast.literal_eval(features_Model_str)
+#     # actual_Param_Model = ast.literal_eval(Param_Model_str)
 
-    params_json = json.dumps(Param_Model_str, default=str) 
-    d = json.loads(params_json)
-    # actual_Param_Model = {k: (float('nan') if v == '__NaN__' else v) for k, v in d.items()}
-    filtered_params = {k: v for k, v in Param_Model_str.items() if v is not None}
+#     params_json = json.dumps(Param_Model_str, default=str) 
+#     d = json.loads(params_json)
+#     # actual_Param_Model = {k: (float('nan') if v == '__NaN__' else v) for k, v in d.items()}
+#     filtered_params = {k: v for k, v in Param_Model_str.items() if v is not None}
 
-    print(f"listfeatrue type {type(actual_features_list)} dictionaire hyper {type(filtered_params)}")
+#     print(f"listfeatrue type {type(actual_features_list)} dictionaire hyper {type(filtered_params)}")
    
-    return actual_features_list, filtered_params
+#     return actual_features_list, filtered_params
 
 
-def check_table_exists(connection, table_name):
-    with connection.cursor() as cursor:
-        query = "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :table_name"
-        cursor.execute(query, table_name = table_name.upper())
+# def check_table_exists(connection, table_name):
+#     with connection.cursor() as cursor:
+#         query = "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :table_name"
+#         cursor.execute(query, table_name = table_name.upper())
 
-        (count,) = cursor.fetchone()
-        return count > 0
+#         (count,) = cursor.fetchone()
+#         return count > 0
 
 
 
@@ -249,88 +288,88 @@ def get_feature_importance(model, final_df, target, exogenous, importance_type='
 
 
 
-def save_intheOracleBase(model_name, id_produit, id_so, current_date, Date_Import, bestHyperParams, bestFeatures, Rmse_model, connection) : 
+# def save_intheOracleBase(model_name, id_produit, id_so, current_date, Date_Import, bestHyperParams, bestFeatures, Rmse_model, connection) : 
 
-    # Constructing column names and placeholders for the SQL query
-    bestHyperParams_str = str(bestHyperParams)
-    bestFeatures_str = str(list(bestFeatures))
-    nb_caractHyperParams = len(bestHyperParams_str)
-    nb_caractFeature = len(bestFeatures_str) 
-    save_quality = 1  
+#     # Constructing column names and placeholders for the SQL query
+#     bestHyperParams_str = str(bestHyperParams)
+#     bestFeatures_str = str(list(bestFeatures))
+#     nb_caractHyperParams = len(bestHyperParams_str)
+#     nb_caractFeature = len(bestFeatures_str) 
+#     save_quality = 1  
 
-    try:
-        with connection.cursor() as cursor:
-            # SQL query to insert into the dynamically named table
-            # query = f"INSERT INTO TRAIN_HISTORIC  ( id_produit, ID_SO, DATE_IMPORT, Date_Entrainement, Model_Name, PARAM_MODEL, features_Model, RMSE_TRAIN, Product_ID_TARIF) VALUES (:IDProduit, :IDSo, :DATE_IMPORT, :DATE_UPDATE_request, :NomModel, :bestHyperParams, :bestFeatures, :RMSE_TRAIN, :Product_ID_TARIF)"
-            query = f"INSERT INTO TRAIN_HISTORIC  (id_produit, ID_SO, DATE_IMPORT, Date_Entrainement, Model_Name, PARAM_MODEL, features_Model, RMSE_TRAIN) VALUES (:IDProduit, :IDSo, :DATE_IMPORT, :DATE_UPDATE_request, :NomModel,:bestHyperParams, :bestFeatures, :RMSE_TRAIN)"
+#     try:
+#         with connection.cursor() as cursor:
+#             # SQL query to insert into the dynamically named table
+#             # query = f"INSERT INTO TRAIN_HISTORIC  ( id_produit, ID_SO, DATE_IMPORT, Date_Entrainement, Model_Name, PARAM_MODEL, features_Model, RMSE_TRAIN, Product_ID_TARIF) VALUES (:IDProduit, :IDSo, :DATE_IMPORT, :DATE_UPDATE_request, :NomModel, :bestHyperParams, :bestFeatures, :RMSE_TRAIN, :Product_ID_TARIF)"
+#             query = f"INSERT INTO TRAIN_HISTORIC  (id_produit, ID_SO, DATE_IMPORT, Date_Entrainement, Model_Name, PARAM_MODEL, features_Model, RMSE_TRAIN) VALUES (:IDProduit, :IDSo, :DATE_IMPORT, :DATE_UPDATE_request, :NomModel,:bestHyperParams, :bestFeatures, :RMSE_TRAIN)"
 
-            # Prepare values for the dynamic part of the query
-                            # Prepare values for the dynamic part of the query
-            values = {
-                'IDProduit': int(id_produit),
-                'IDSo': int(id_so),
-                'DATE_IMPORT': Date_Import,
-                'DATE_UPDATE_request': current_date,
-                'NomModel': model_name,
-                'bestHyperParams': bestHyperParams_str,
-                'bestFeatures': bestFeatures_str,
-                'RMSE_TRAIN': float(Rmse_model)
-                # 'Product_ID_TARIF': int(Product_ID_TARIF)
-            }
+#             # Prepare values for the dynamic part of the query
+#                             # Prepare values for the dynamic part of the query
+#             values = {
+#                 'IDProduit': int(id_produit),
+#                 'IDSo': int(id_so),
+#                 'DATE_IMPORT': Date_Import,
+#                 'DATE_UPDATE_request': current_date,
+#                 'NomModel': model_name,
+#                 'bestHyperParams': bestHyperParams_str,
+#                 'bestFeatures': bestFeatures_str,
+#                 'RMSE_TRAIN': float(Rmse_model)
+#                 # 'Product_ID_TARIF': int(Product_ID_TARIF)
+#             }
             
-            # Execute the query
-            cursor.execute(query, values)
+#             # Execute the query
+#             cursor.execute(query, values)
 
-            # Commit the transaction
-            connection.commit()
-    except oracledb.DatabaseError as e:
-            print(f"Failed to save model data due to a database error: {e}")
-            connection.rollback()
-            raise
+#             # Commit the transaction
+#             connection.commit()
+#     except oracledb.DatabaseError as e:
+#             print(f"Failed to save model data due to a database error: {e}")
+#             connection.rollback()
+#             raise
 
 
 
-def load_from_OracleBase(id_produit, id_so, connection):
-    try:
-        with connection.cursor() as cursor:
-            query = """
-                SELECT *
-                FROM TRAIN_HISTORIC
-                WHERE DATE_ENTRAINEMENT = (
-                    SELECT MAX(DATE_ENTRAINEMENT)
-                    FROM TRAIN_HISTORIC
-                    WHERE ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
-                )
-                AND RMSE_TRAIN = (
-                    SELECT MIN(RMSE_TRAIN)
-                    FROM TRAIN_HISTORIC
-                    WHERE DATE_ENTRAINEMENT = (
-                        SELECT MAX(DATE_ENTRAINEMENT)
-                        FROM TRAIN_HISTORIC
-                        WHERE ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
-                    )
-                )
-                AND ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
-            """
-            values = {
-                'IDProduit': id_produit,
-                'IDSo': id_so,
-            }
-            cursor.execute(query, values)
-            rows = cursor.fetchall()  # Fetch all matching rows
+# def load_from_OracleBase(id_produit, id_so, connection):
+#     try:
+#         with connection.cursor() as cursor:
+#             query = """
+#                 SELECT *
+#                 FROM TRAIN_HISTORIC
+#                 WHERE DATE_ENTRAINEMENT = (
+#                     SELECT MAX(DATE_ENTRAINEMENT)
+#                     FROM TRAIN_HISTORIC
+#                     WHERE ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
+#                 )
+#                 AND RMSE_TRAIN = (
+#                     SELECT MIN(RMSE_TRAIN)
+#                     FROM TRAIN_HISTORIC
+#                     WHERE DATE_ENTRAINEMENT = (
+#                         SELECT MAX(DATE_ENTRAINEMENT)
+#                         FROM TRAIN_HISTORIC
+#                         WHERE ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
+#                     )
+#                 )
+#                 AND ID_PRODUIT = :IDProduit AND ID_SO = :IDSo
+#             """
+#             values = {
+#                 'IDProduit': id_produit,
+#                 'IDSo': id_so,
+#             }
+#             cursor.execute(query, values)
+#             rows = cursor.fetchall()  # Fetch all matching rows
 
-            if rows:
-                headers = [i[0] for i in cursor.description]
-                df_temp = pd.DataFrame(rows, columns=headers)
-                print("Most recent model loaded successfully.")
-                return df_temp
-            else:
-                print("No data found for the specified criteria.")
-                return pd.DataFrame()  # Return an empty DataFrame
+#             if rows:
+#                 headers = [i[0] for i in cursor.description]
+#                 df_temp = pd.DataFrame(rows, columns=headers)
+#                 print("Most recent model loaded successfully.")
+#                 return df_temp
+#             else:
+#                 print("No data found for the specified criteria.")
+#                 return pd.DataFrame()  # Return an empty DataFrame
 
-    except oracledb.DatabaseError as e:
-        print(f"Database error occurred: {e}")
-        return None
+#     except oracledb.DatabaseError as e:
+#         print(f"Database error occurred: {e}")
+#         return None
 
 
 def XgBoost_elasticities(X_test, exogenous, model):
@@ -581,10 +620,10 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
 
 
 
-def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous, id_produit, id_so, date_import):
+def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous, id_produit, id_so):
     # Create a dictionary which contains all information needed 
     preds = {}
-    current_date = datetime.now()
+    # current_date = datetime.now()
 
     # if GET_Date_Product(id_produit, id_so, connection) is not None :
     #     Date_Import = GET_Date_Product(id_produit, id_so, connection)
