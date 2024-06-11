@@ -546,7 +546,7 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     prix_max = max(final_df['PARAM_PRIX'])
     last_price = final_df['PARAM_PRIX'].iloc[-1]
 
-    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(NB_PRIX)]
+    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1,NB_PRIX)]
     # print(vec_prix_test)
     vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
     
@@ -652,7 +652,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     prix_max = max(final_df['PARAM_PRIX'])
     last_price = final_df['PARAM_PRIX'].iloc[-1]
 
-    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(NB_PRIX)]
+    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1,NB_PRIX)]
     # print(vec_prix_test)
     vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
     
