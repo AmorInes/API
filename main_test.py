@@ -72,7 +72,7 @@ def version_GET(Product_features_json, Product_quantity_json, Product_future_fea
     
 @app.route('/api/modelbooper/prixpermanent/user', methods=['POST'])
 def receive_data2():
-
+    
     Product_features_json = request.json['LIST_HISTO']
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']

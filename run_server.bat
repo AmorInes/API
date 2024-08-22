@@ -1,1 +1,1 @@
-waitress-serve --listen=57.128.80.162:5000 --thread=12 main_test:app
+waitress-serve --listen=5.39.71.41:5000 --thread=12 main_test:app
