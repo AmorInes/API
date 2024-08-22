@@ -41,7 +41,15 @@ def XgBoostRegressor(X_train, y_train):
     # finding the best estimator :
     # start_time = datetime.now()
 
-    tscv = TimeSeriesSplit(n_splits=3)
+    n_folds = 3
+
+
+    # Assurer que le nombre de plis n'est pas supérieur au nombre d'échantillons
+    if n_folds > X_train.shape[0]:
+        raise ValueError(f"Le nombre de plis ({n_folds}) est supérieur au nombre d'échantillons ({X_train.shape[0]})")
+    
+    tscv = TimeSeriesSplit(n_splits=n_folds)
+
     grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=-1, cv=tscv)
     
     # grid_xgb.fit(X_train, y_train)
@@ -98,6 +106,15 @@ def LightBMRegressor(X_train, y_train):
         }
 
     # start_time = datetime.now()
+
+    n_folds = 3
+
+
+    # Assurer que le nombre de plis n'est pas supérieur au nombre d'échantillons
+    if n_folds > X_train.shape[0]:
+        raise ValueError(f"Le nombre de plis ({n_folds}) est supérieur au nombre d'échantillons ({X_train.shape[0]})")
+    
+    
     tscv = TimeSeriesSplit(n_splits=3)
     grid_lgb = GridSearchCV(lgb, param_grid,  n_jobs=-1, cv=tscv)
     
@@ -673,9 +690,8 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     
     
     # Some variation test
-    #prix_min = min(final_df['PARAM_PRIX'])
-    #prix_max = max(final_df['PARAM_PRIX'])
-
+    # prix_min = min(final_df['PARAM_PRIX'])
+    # prix_max = max(final_df['PARAM_PRIX'])
     last_price = final_df['PARAM_PRIX'].iloc[-1]
 
     prix_min = last_price * 0.9

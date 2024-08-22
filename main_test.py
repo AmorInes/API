@@ -11,6 +11,7 @@ import json
 
 
 
+
 app = Flask(__name__)
 
 
@@ -76,7 +77,7 @@ def receive_data2():
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
-    So_Id_json = request.json['ID_SO']
+    So_Id_json = request.json.get('ID_SO', 0)
     date_import = request.json['DATE_IMPORT']
     Product_ID_TARIF = 0
     features_model = request.json["FEATURES_MODEL"]
@@ -85,7 +86,7 @@ def receive_data2():
     model_name = request.json["MODEL_NAME"]
 
 
-    if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
+    if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
         # user = request.json['user']
         # password = request.json['password']
         # host = request.json['host']
@@ -118,10 +119,10 @@ def receive_data():
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
-    ID_SO_request = request.json['ID_SO']
+    ID_SO_request = request.json.get('ID_SO', 0)
     # date_import = request.json['DATE_IMPORT']
 
-    if len(Product_features_json) != 0 and len(Product_quantity_json) != 0 : 
+    if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
         # user = request.json['user']
         # password = request.json['password']
         # host = request.json['host']
