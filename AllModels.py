@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd 
 import json
 from flask import Flask, request, jsonify
-from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit
+from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit, RandomizedSearchCV
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import statsmodels.api as sm
 import xgboost
@@ -11,14 +11,63 @@ import warnings
 import ast
 from datetime import datetime, timedelta
 import time
-warnings.filterwarnings("ignore", category=Warning)
+from joblib import parallel_backend
+import joblib 
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="No further splits with positive gain, best gain: -inf")
 
 NB_PRIX = 6
+
 
 class XGBRegressorInt(xgboost.XGBRegressor):
         def predict(self, data):
             _y = super().predict(data)
             return np.asarray(_y, dtype=np.intc)
+
+
+
+# def XgBoostRegressor(X_train, y_train):
+
+#     xgb = XGBRegressorInt()
+#     param_dist = { 
+#         'objective': ['reg:squarederror'],
+#         'learning_rate': [0.03],
+#         'reg_lambda': [1],
+#         'n_estimators': [1000],
+#         'max_depth': [3, 5, 7],
+#         'min_child_weight': [6, 7, 8, 9],
+#         'gamma': [0],
+#         'colsample_bytree': [0.8],
+#     }
+
+#     n_folds = min(3, X_train.shape[0])
+#     tscv = TimeSeriesSplit(n_splits=n_folds)
+
+#     random_search = RandomizedSearchCV(xgb, param_distributions=param_dist, n_iter=10, cv=tscv, n_jobs=2)
+    
+#     max_time = 60  # Augmenté à 60 secondes
+#     start_time = time.time()
+
+#     try:
+#         with parallel_backend('loky', n_jobs=2, inner_max_num_threads=1):
+#             with joblib.parallel.parallel_memory_limit(max_memory=1024 * 1024 * 1024):  # 1GB
+#                 random_search.fit(X_train, y_train)
+#     except Exception as e:
+#         print(f"An error occurred during fitting: {str(e)}")
+#         return None, None
+
+#     if (time.time() - start_time) >= max_time:
+#         print(f"RandomizedSearchCV XGB fitting timed out after {max_time} seconds.")
+#         return None, None
+
+#     model_xgb = random_search.best_estimator_
+#     model_xgb.fit(X_train, y_train)
+
+#     print(f'Ceci est mon modèle xgboost {model_xgb}')
+
+#     return model_xgb, random_search.best_params_
 
 def XgBoostRegressor(X_train, y_train):
     #XGBOOSTRegressor hyperparameters :
@@ -50,17 +99,18 @@ def XgBoostRegressor(X_train, y_train):
     
     tscv = TimeSeriesSplit(n_splits=n_folds)
 
-    grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=-1, cv=tscv)
+    grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=1, cv=tscv)
     
     # grid_xgb.fit(X_train, y_train)
     # Set the maximum execution time in seconds
-    max_time = 20
+    max_time = 60
 
     start_time = time.time()
     while (time.time() - start_time) < max_time:
         try:
-            grid_xgb.fit(X_train, y_train)
-            break  # Exit the loop if fit completes within the time limit
+            # with parallel_backend('loky', n_jobs=1, max_nbytes='3G'):
+            grid_xgb.fit(X_train, y_train)   # Exit the loop if fit completes within the time limit
+            # break 
         except TimeoutError:
             pass  # Handle timeout gracefully (optional)
 
@@ -83,9 +133,10 @@ def XgBoostRegressor(X_train, y_train):
 
 
 class LightBMRegressorInt(lightgbm.LGBMRegressor):
-        def predict(self, data):
-            _y = super().predict(data)
-            return np.asarray(_y, dtype=np.intc)
+
+    def predict(self, data):
+        _y = super().predict(data)
+        return np.asarray(_y, dtype=np.intc)
 
 def LightBMRegressor(X_train, y_train):
     #LightGBM hyperparameter 
@@ -100,8 +151,8 @@ def LightBMRegressor(X_train, y_train):
                 'subsample'    : [0.6],
                 'max_depth': [3,5,7], #Profondeur maximal des arbres 
                 'n_estimators': [1000],
-                'force_row_wise': [True]  # Activer l'option force_row_wise pour la perf mémoire
-                
+                'force_row_wise': [True],  # Activer l'option force_row_wise pour la perf mémoire
+                'verbose' : [-1]
         
         }
 
@@ -116,17 +167,18 @@ def LightBMRegressor(X_train, y_train):
     
     
     tscv = TimeSeriesSplit(n_splits=3)
-    grid_lgb = GridSearchCV(lgb, param_grid,  n_jobs=-1, cv=tscv)
+    grid_lgb = GridSearchCV(lgb, param_grid,  n_jobs=1, cv=tscv)
     
     # grid_lgb.fit(X_train, y_train)
     # Set the maximum execution time in seconds
-    max_time = 20
+    max_time = 60
 
     start_time = time.time()
     while (time.time() - start_time) < max_time:
         try:
+            # with parallel_backend('loky', n_jobs=1, max_nbytes='3G'):
             grid_lgb.fit(X_train, y_train)
-            break  # Exit the loop if fit completes within the time limit
+            # break  # Exit the loop if fit completes within the time limit
         except TimeoutError:
             pass  # Handle timeout gracefully (optional)
 
@@ -135,7 +187,9 @@ def LightBMRegressor(X_train, y_train):
         print("GridSearchCV LGM fitting timed out after", max_time, "seconds.")
 
     # fitting the model : 
+    
     model_lgb =  grid_lgb.best_estimator_
+    
     model_lgb.fit(X_train, y_train)
     # end_time = datetime.now()
     # elapsed_time = end_time - start_time
@@ -144,10 +198,80 @@ def LightBMRegressor(X_train, y_train):
     return model_lgb, grid_lgb.best_params_
 
 
+
+# def LightBMRegressor(X_train, y_train):
+#     #LightGBM hyperparameter 
+#     lgb = LightBMRegressorInt()
+
+#     param_grid = {
+#                 'num_leaves': [8,16,32,64],  
+#                 'reg_lambda': [1], 
+#                 'min_child_samples' : [4,6,8],
+#                 # 'learning_rate' : [0.03,0.05,0.07],
+#                 'learning_rate': [0.03], #Comme pour xgboost c'est l'apport d'information après chaque arbres
+#                 'subsample'    : [0.6],
+#                 'max_depth': [3,5,7], #Profondeur maximal des arbres 
+#                 'n_estimators': [1000],
+#                 'force_row_wise': [True],  # Activer l'option force_row_wise pour la perf mémoire
+#                 'verbose' : [-1]
+        
+#         }
+
+#     # start_time = datetime.now()
+
+#     n_folds = 3
+
+
+#     # Assurer que le nombre de plis n'est pas supérieur au nombre d'échantillons
+#     if n_folds > X_train.shape[0]:
+#         raise ValueError(f"Le nombre de plis ({n_folds}) est supérieur au nombre d'échantillons ({X_train.shape[0]})")
+    
+    
+#     tscv = TimeSeriesSplit(n_splits=3)
+#     grid_lgb = GridSearchCV(lgb, param_grid,  n_jobs=-1, cv=tscv)
+    
+#     # grid_lgb.fit(X_train, y_train)
+#     # Set the maximum execution time in seconds
+#     random_search = RandomizedSearchCV(lgb, param_distributions=param_grid, n_iter=10, cv=tscv, n_jobs=2)
+    
+#     max_time = 60  # Augmenté à 60 secondes
+#     start_time = time.time()
+
+#     try:
+#         with parallel_backend('loky', n_jobs=2, inner_max_num_threads=1):
+#             with joblib.parallel.parallel_memory_limit(max_memory=1024 * 1024 * 1024):  # 1GB
+#                 random_search.fit(X_train, y_train)
+#     except Exception as e:
+#         print(f"An error occurred during fitting: {str(e)}")
+#         return None, None
+
+#     if (time.time() - start_time) >= max_time:
+#         print(f"RandomizedSearchCV XGB fitting timed out after {max_time} seconds.")
+#         return None, None
+#     # fitting the model : 
+    
+#     model_lgb =  grid_lgb.best_estimator_
+    
+#     model_lgb.fit(X_train, y_train)
+#     print(f'Ceci est mon modèle lightgbm {model_lgb}')
+#     # end_time = datetime.now()
+#     # elapsed_time = end_time - start_time
+#     # print("Temps écoulé LBM:", elapsed_time)
+
+#     return model_lgb, grid_lgb.best_params_
+
+
 def GETLightBMRegressor(X_train, y_train, best_hyperparam):
+    default_params = {
+        'random_state': None,
+        'verbose': -1
+        # Ajoutez d'autres paramètres par défaut si nécessaire
+    }
+    # Mettre à jour les paramètres par défaut avec ceux fournis
+    params = {**default_params, **best_hyperparam}
 
     #LightGBM hyperparameter 
-    lgb = LightBMRegressorInt(**best_hyperparam)
+    lgb = LightBMRegressorInt(**params)
     model_lgb = lgb.fit(X_train, y_train)
 
     return model_lgb
@@ -439,6 +563,7 @@ def ModelChoice(final_df, exogenous, target) :
     y_pred_Light = ModelPrediction(model_Light,X_test[exogenous])
 
     error_Light = float(abs(sum(y_pred_Light) - sum(X_test[target])))
+    # error_Light=100000000
 
 
     # Choose the best model based on error metric
@@ -644,6 +769,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     # Create a dictionary which contains all information needed 
     preds = {}
     # current_date = datetime.now()
+    print(final_df['PARAM_PRIX'])
 
     # if GET_Date_Product(id_produit, id_so, connection) is not None :
     #     Date_Import = GET_Date_Product(id_produit, id_so, connection)

@@ -6,8 +6,8 @@ from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, ProcessPoolExe
 import pandas as pd
 import numpy as np
 import json
-
-
+import torch
+import multiprocessing
 
 
 
@@ -85,6 +85,7 @@ def receive_data2():
     date_import = request.json["DATE_IMPORT"]
     model_name = request.json["MODEL_NAME"]
 
+    print(len(Product_features_json))
 
     if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
         # user = request.json['user']
@@ -114,12 +115,14 @@ def receive_data2():
 
 @app.route('/api/modelbooper/prixpermanent', methods=['POST'])
 def receive_data():
+    
 
     Product_features_json = request.json['LIST_HISTO']
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
     ID_SO_request = request.json.get('ID_SO', 0)
+    print(f"J'ai le produit {Product_Id_produit_json}")
     # date_import = request.json['DATE_IMPORT']
 
     if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
@@ -179,13 +182,30 @@ if __name__ == '__main__':
     # In the app section directly
 
 
-    app.debug = False
-    
-    with ThreadPoolExecutor(max_workers=15) as executor:
-        executor.map(app.run(host='0.0.0.0', port=5000))
+    # app.debug = False
+    #app.run(host='0.0.0.0', port=5000)
+
+    # with ThreadPoolExecutor(max_workers=15) as executor:
+    #     executor.map(app.run(host='0.0.0.0', port=5000))
+
+    #extractor = parallelTestModule.ParallelExtractor()
+    #extractor.runInParallel()
+    multiprocessing.freeze_support()
+
+    #Il sera peut être bon de modifier de nouveaux
+    #Ca ne marche pas
 
 
+    app.run(host='0.0.0.0', port=5000)
+
     
+
+    #with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+    #    futures = [executor.submit(app.run(host='0.0.0.0', port=5000))]
+    #    str_lst=[]
+    #    for future in concurrent.futures.as_completed(futures):
+    #        out_text = ""
+            
 
 #     with ThreadPoolExecutor(max_workers=50) as executor:
 #         executor.map(app.run(host='0.0.0.0', port=80))
