@@ -413,14 +413,15 @@ def split_df(x_final) :
 def ModelChoice(final_df, exogenous, target) : 
     X_train, X_test = split_df(final_df)
 
+    sum_target = sum(X_test[target])
+
     model_xgb, best_params  = XgBoostRegressor(X_train[exogenous], X_train[target])
     y_pred_xgb = ModelPrediction(model_xgb, X_test[exogenous])
     error_xgb = float(abs(sum(y_pred_xgb) - sum(X_test[target])))
-
+    
 
     model_Light, best_params  = LightBMRegressor(X_train[exogenous], X_train[target])
     y_pred_Light = ModelPrediction(model_Light,X_test[exogenous])
-
     error_Light = float(abs(sum(y_pred_Light) - sum(X_test[target])))
 
 
@@ -433,15 +434,35 @@ def ModelChoice(final_df, exogenous, target) :
     best_model = min(errors, key=errors.get)
     best_error = errors[best_model]
 
-
+    
     
     #Retraing the best model on all data 
     if best_model == 'xgboost':
         model, best_params = XgBoostRegressor(final_df[exogenous], final_df[target])
+        if sum_target <= 10:
+            # Gérer le cas où la somme est 0
+            percentage_error = float(0)  
+            percentage_accuracy = 100 - percentage_error
+        else:
+            # Calcul du pourcentage d'erreur
+            percentage_error = (error_xgb / sum_target) * 100
+            percentage_accuracy = 100 - percentage_error
+
     elif best_model == 'lightgbm':
         model,best_params = LightBMRegressor(final_df[exogenous], final_df[target])
+        if sum_target <= 10:
+            # Gérer le cas où la somme est 0
+            percentage_error = float(0)  
+            percentage_accuracy = 100 - percentage_error
+        else:
+            # Calcul du pourcentage d'erreur
+            percentage_error = (error_Light / sum_target) * 100
+            percentage_accuracy = 100 - percentage_error
+
+
+    #print(f"Percentage Precicion : {percentage_accuracy}")
     
-    return best_model, model, best_error, best_params
+    return best_model, model, best_error, percentage_accuracy, best_params
 
 
 
@@ -542,12 +563,16 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     
     
     # Some variation test
-    prix_min = min(final_df['PARAM_PRIX'])
-    prix_max = max(final_df['PARAM_PRIX'])
+    #prix_min = min(final_df['PARAM_PRIX'])
+    #prix_max = max(final_df['PARAM_PRIX'])
+
     last_price = final_df['PARAM_PRIX'].iloc[-1]
 
-    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(NB_PRIX)]
-    # print(vec_prix_test)
+    prix_min = last_price * 0.9
+    prix_max = last_price * 1.1
+
+    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1,NB_PRIX)]
+    #print(vec_prix_test)
     vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
     
     # Change prediction values with the price
@@ -631,7 +656,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     #     Date_Import = current_date
 
 
-    best_model, model, best_error, best_param = ModelChoice(final_df, exogenous, target)
+    best_model, model, best_error, percentage_accuracy, best_param = ModelChoice(final_df, exogenous, target)
     bestFeatures = exogenous
     # bestHyperParams = model.get_params()
     # print(f"best type {bestHyperParams}")
@@ -648,11 +673,15 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     
     
     # Some variation test
-    prix_min = min(final_df['PARAM_PRIX'])
-    prix_max = max(final_df['PARAM_PRIX'])
+    #prix_min = min(final_df['PARAM_PRIX'])
+    #prix_max = max(final_df['PARAM_PRIX'])
+
     last_price = final_df['PARAM_PRIX'].iloc[-1]
 
-    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(NB_PRIX)]
+    prix_min = last_price * 0.9
+    prix_max = last_price * 1.1
+
+    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1,NB_PRIX)]
     # print(vec_prix_test)
     vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
     
@@ -699,6 +728,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     bestHyperParams_str = str(best_param)
     bestFeatures_str = str(list(bestFeatures))
 
+    preds_converted["ACCURACY"] = percentage_accuracy 
     preds_converted["MAE_LAST_MONTH"] = None 
     preds_converted["RMSE_TRAIN"] = best_error
     preds_converted["FEATURES_MODEL"] = bestFeatures_str
@@ -706,7 +736,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     preds_converted["MODEL_NAME"] = best_model
     # preds_converted["DATE_IMPORT"] = date_import
 
-    preds_converted['ERROR']=best_error
+    #preds_converted['ERROR']=best_error
 
     # preds_converted['COM_ERROR']= com_error
     preds_converted['MODEL']=best_model
