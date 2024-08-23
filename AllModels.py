@@ -14,6 +14,7 @@ import time
 from joblib import parallel_backend
 import joblib 
 
+warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message="No further splits with positive gain, best gain: -inf")
@@ -816,7 +817,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     # Create a dictionary which contains all information needed 
     preds = {}
     # current_date = datetime.now()
-    print(final_df['PARAM_PRIX'])
+    #print(final_df['PARAM_PRIX'])
 
     # if GET_Date_Product(id_produit, id_so, connection) is not None :
     #     Date_Import = GET_Date_Product(id_produit, id_so, connection)
