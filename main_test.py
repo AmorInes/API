@@ -12,6 +12,7 @@ import multiprocessing
 
 
 
+
 app = Flask(__name__)
 
 
@@ -19,17 +20,17 @@ app = Flask(__name__)
 
 NB_PRIX = 6
 
-def Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json):
-    x_future, final_df, target, nb_jours, exogenous = AllModels.process_data(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
-    results = AllModels.process_product(x_future,final_df,target,nb_jours,exogenous) 
-    # mae = json.loads(results).get('MAE')
-    errors = json.loads(results).get('ERRORS')
-    error = json.loads(results).get('ERROR')
-    # com_eroor = json.loads(results).get('COM_ERROR')
+# def Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json):
+#     x_future, final_df, target, nb_jours, exogenous = AllModels.process_data(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
+#     results = AllModels.process_product(x_future,final_df,target,nb_jours,exogenous) 
+#     # mae = json.loads(results).get('MAE')
+#     errors = json.loads(results).get('ERRORS')
+#     error = json.loads(results).get('ERROR')
+#     # com_eroor = json.loads(results).get('COM_ERROR')
 
-    model = json.loads(results).get('MODEL')
-    print(f"Produit {Product_Id_produit_json} -- Errors = {errors} -- BestModel = {model} -- BestError = {error}")
-    return results
+#     model = json.loads(results).get('MODEL')
+#     print(f"Produit {Product_Id_produit_json} -- Errors = {errors} -- BestModel = {model} -- BestError = {error}")
+#     return results
 
 def version_SET(Product_features_json, Product_quantity_json, Product_future_features_json, ID_SO_request, Product_Id_produit_json) : 
 
@@ -85,7 +86,7 @@ def receive_data2():
     date_import = request.json["DATE_IMPORT"]
     model_name = request.json["MODEL_NAME"]
 
-    print(len(Product_features_json))
+    # print(len(Product_features_json))
 
     if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
         # user = request.json['user']
@@ -122,7 +123,8 @@ def receive_data():
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
     ID_SO_request = request.json.get('ID_SO', 0)
-    print(f"J'ai le produit {Product_Id_produit_json}")
+
+    # print(f"J'ai le produit {Product_Id_produit_json}")
     # date_import = request.json['DATE_IMPORT']
 
     if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
@@ -182,23 +184,33 @@ if __name__ == '__main__':
     # In the app section directly
 
 
-    # app.debug = False
+    app.debug = True
     #app.run(host='0.0.0.0', port=5000)
+    #freeze_support()
+
+    print("Hello! API BOOPER !")
+    serve(app, host='0.0.0.0', port=5000, threads=15)
+
 
     # with ThreadPoolExecutor(max_workers=15) as executor:
-    #     executor.map(app.run(host='0.0.0.0', port=5000))
+    #       executor.map(app.run(host='0.0.0.0', port=5000))
 
     #extractor = parallelTestModule.ParallelExtractor()
     #extractor.runInParallel()
-    multiprocessing.freeze_support()
+    # multiprocessing.freeze_support()
 
-    #Il sera peut être bon de modifier de nouveaux
-    #Ca ne marche pas
+    # #Il sera peut être bon de modifier de nouveaux
+    # #Ca ne marche pas
 
 
-    app.run(host='0.0.0.0', port=5000)
+    # app.run(host='0.0.0.0', port=5000)
 
+    # multiprocessing.freeze_support()  
     
+    
+    # # Utiliser Waitress pour servir l'application Flask
+    # serve(app, host='0.0.0.0', port=5000)
+
 
     #with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
     #    futures = [executor.submit(app.run(host='0.0.0.0', port=5000))]

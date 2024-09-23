@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd 
 import json
 from flask import Flask, request, jsonify
+
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit, RandomizedSearchCV
 from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score
 import statsmodels.api as sm
@@ -21,10 +22,6 @@ warnings.filterwarnings("ignore", message="No further splits with positive gain,
 NB_PRIX = 6
 
 
-class XGBRegressorInt(xgboost.XGBRegressor):
-        def predict(self, data):
-            _y = super().predict(data)
-            return np.asarray(_y, dtype=np.intc)
 
 
 
@@ -69,6 +66,12 @@ class XGBRegressorInt(xgboost.XGBRegressor):
 
 #     return model_xgb, random_search.best_params_
 
+class XGBRegressorInt(xgboost.XGBRegressor):
+        def predict(self, data):
+            _y = super().predict(data)
+            return np.asarray(_y, dtype=np.intc)
+
+
 def XgBoostRegressor(X_train, y_train):
     #XGBOOSTRegressor hyperparameters :
     xgb = XGBRegressorInt()
@@ -103,16 +106,16 @@ def XgBoostRegressor(X_train, y_train):
     
     # grid_xgb.fit(X_train, y_train)
     # Set the maximum execution time in seconds
-    max_time = 60
+    max_time = 20
 
     start_time = time.time()
+
     while (time.time() - start_time) < max_time:
         try:
-            # with parallel_backend('loky', n_jobs=1, max_nbytes='3G'):
-            grid_xgb.fit(X_train, y_train)   # Exit the loop if fit completes within the time limit
-            # break 
+            grid_xgb.fit(X_train, y_train)
+            break  # Exit the loop if fit completes within the time limit
         except TimeoutError:
-            pass  # Handle timeout gracefully (optional)
+           pass
 
     # Check if fitting completed within the time limit
     if (time.time() - start_time) >= max_time:
@@ -171,20 +174,18 @@ def LightBMRegressor(X_train, y_train):
     
     # grid_lgb.fit(X_train, y_train)
     # Set the maximum execution time in seconds
-    max_time = 60
+    max_time = 20
 
     start_time = time.time()
     while (time.time() - start_time) < max_time:
         try:
-            # with parallel_backend('loky', n_jobs=1, max_nbytes='3G'):
             grid_lgb.fit(X_train, y_train)
-            # break  # Exit the loop if fit completes within the time limit
+            break  # Exit the loop if fit completes within the time limit
         except TimeoutError:
             pass  # Handle timeout gracefully (optional)
-
     # Check if fitting completed within the time limit
     if (time.time() - start_time) >= max_time:
-        print("GridSearchCV LGM fitting timed out after", max_time, "seconds.")
+        print("GridSearchCV LGBM fitting timed out after", max_time, "seconds.")
 
     # fitting the model : 
     
@@ -552,11 +553,14 @@ def split_df(x_final) :
 
 
 def ModelChoice(final_df, exogenous, target) : 
+    start_time = time.time()
+
     X_train, X_test = split_df(final_df)
 
     sum_target = sum(X_test[target])
 
-    model_xgb, best_params  = XgBoostRegressor(X_train[exogenous], X_train[target])
+    print("XGB train")
+    model_xgb, best_params_xgb  = XgBoostRegressor(X_train[exogenous], X_train[target])
     y_pred_xgb = ModelPrediction(model_xgb, X_test[exogenous])
     error_xgb = float(abs(sum(y_pred_xgb) - sum(X_test[target])))
     # # Calcul de MAE
@@ -574,12 +578,11 @@ def ModelChoice(final_df, exogenous, target) :
     # # Calcul de MAPE
     # mape = np.mean(np.abs((X_test[target] - y_pred_xgb) / X_test[target])) * 100
     # print("MAPE:", mape)
-
-    model_Light, best_params  = LightBMRegressor(X_train[exogenous], X_train[target])
+    print("LGBM train")
+    model_Light, best_params_Light  = LightBMRegressor(X_train[exogenous], X_train[target])
     y_pred_Light = ModelPrediction(model_Light,X_test[exogenous])
     error_Light = float(abs(sum(y_pred_Light) - sum(X_test[target])))
 
-    
 
     # Choose the best model based on error metric
     errors = {
@@ -594,7 +597,10 @@ def ModelChoice(final_df, exogenous, target) :
     
     #Retraing the best model on all data 
     if best_model == 'xgboost':
-        model, best_params = XgBoostRegressor(final_df[exogenous], final_df[target])
+        print("XGB final")
+        #model, best_params = XgBoostRegressor(final_df[exogenous], final_df[target]) # pas besoin de relancer le gridsearch --> on refit uniquement avec les best-param
+        model = GETXgboostRegressor(final_df[exogenous], final_df[target],best_params_xgb)
+        best_params = best_params_xgb
         precision = accuracy_score(X_test[target], y_pred_xgb)
         percentage_accuracy = precision * 100
 
@@ -609,7 +615,10 @@ def ModelChoice(final_df, exogenous, target) :
             percentage_accuracy_global = 100 - percentage_error_global
 
     elif best_model == 'lightgbm':
-        model,best_params = LightBMRegressor(final_df[exogenous], final_df[target])
+        print("LGBM final")
+        #model,best_params = LightBMRegressor(final_df[exogenous], final_df[target]) # pas besoin de relancer le gridsearch --> on refit uniquement avec les best-param
+        model = GETLightBMRegressor(final_df[exogenous], final_df[target], best_params_Light)
+        best_params = best_params_Light
         precision = accuracy_score(X_test[target], y_pred_Light)
         percentage_accuracy = precision * 100
 
@@ -628,7 +637,10 @@ def ModelChoice(final_df, exogenous, target) :
         percentage_accuracy_global = 0
         
     #print(f"Percentage Precicion : {percentage_accuracy}")
-    
+        
+
+    print(f"Le temps d'execution est {time.time()-start_time} seconds.")
+
     return best_model, model, best_error, percentage_accuracy, percentage_accuracy_global, best_params
 
 
@@ -636,7 +648,7 @@ def ModelChoice(final_df, exogenous, target) :
 
 
 
-def process_data(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
+def process_data(Product_parametre_json,Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
     ##### 
     #Il faut que face une fonction pour retraiter les données : 
     #####
@@ -667,7 +679,8 @@ def process_data(Product_features_json, Product_quantity_json, Product_future_fe
 
     # Convert the received JSON data to a DataFrame : 
     target = 'QUANTITE'
-    exogenous = [x for x in request.json['LIST_PARAMETRE'] if x != target]
+    exogenous = [x for x in Product_parametre_json if x != target]
+    #print(exogenous)
 
     
     #Convert to Numeric: 
@@ -816,7 +829,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     # Create a dictionary which contains all information needed 
     preds = {}
     # current_date = datetime.now()
-    print(final_df['PARAM_PRIX'])
+    #print(final_df['PARAM_PRIX'])
 
     # if GET_Date_Product(id_produit, id_so, connection) is not None :
     #     Date_Import = GET_Date_Product(id_produit, id_so, connection)
@@ -917,6 +930,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
 
     # # Convert the dictionary to JSON
     json_output = json.dumps(preds_converted)
+
 
 
 
