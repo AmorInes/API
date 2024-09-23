@@ -6,7 +6,6 @@ from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, ProcessPoolExe
 import pandas as pd
 import numpy as np
 import json
-import torch
 import multiprocessing
 
 
@@ -20,6 +19,7 @@ app = Flask(__name__)
 
 NB_PRIX = 6
 
+
 # def Model_direct(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json):
 #     x_future, final_df, target, nb_jours, exogenous = AllModels.process_data(Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json)
 #     results = AllModels.process_product(x_future,final_df,target,nb_jours,exogenous) 
@@ -31,6 +31,7 @@ NB_PRIX = 6
 #     model = json.loads(results).get('MODEL')
 #     print(f"Produit {Product_Id_produit_json} -- Errors = {errors} -- BestModel = {model} -- BestError = {error}")
 #     return results
+
 
 def version_SET(Product_features_json, Product_quantity_json, Product_future_features_json, ID_SO_request, Product_Id_produit_json) : 
 
@@ -86,7 +87,9 @@ def receive_data2():
     date_import = request.json["DATE_IMPORT"]
     model_name = request.json["MODEL_NAME"]
 
+
     # print(len(Product_features_json))
+
 
     if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
         # user = request.json['user']
@@ -205,11 +208,18 @@ if __name__ == '__main__':
 
     # app.run(host='0.0.0.0', port=5000)
 
+
     # multiprocessing.freeze_support()  
     
     
     # # Utiliser Waitress pour servir l'application Flask
     # serve(app, host='0.0.0.0', port=5000)
+
+
+    multiprocessing.freeze_support()  # Si vous en avez besoin pour Windows (utilisation facultative)
+    
+    # Utiliser Waitress pour servir l'application Flask
+    #serve(app, host='0.0.0.0', port=5000)
 
 
     #with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:

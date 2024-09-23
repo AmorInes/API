@@ -15,6 +15,7 @@ import time
 from joblib import parallel_backend
 import joblib 
 
+warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message="No further splits with positive gain, best gain: -inf")
