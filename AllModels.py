@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd 
 import json
 from flask import Flask, request, jsonify
-
+from joblib import Parallel, parallel_backend
 from sklearn.model_selection import GridSearchCV, train_test_split, TimeSeriesSplit, RandomizedSearchCV
 from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score
 import statsmodels.api as sm
@@ -14,11 +14,16 @@ from datetime import datetime, timedelta
 import time
 from joblib import parallel_backend
 import joblib 
+from dask_ml.model_selection import GridSearchCV as DaskGridSearchCV
+
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message="No further splits with positive gain, best gain: -inf")
+# Ignorer les avertissements spécifiques de XGBoost
+warnings.filterwarnings("ignore", category=FutureWarning, module='xgboost.core')
+
 
 NB_PRIX = 6
 
@@ -66,7 +71,7 @@ NB_PRIX = 6
 #     print(f'Ceci est mon modèle xgboost {model_xgb}')
 
 #     return model_xgb, random_search.best_params_
-
+n_jobs  = -1
 class XGBRegressorInt(xgboost.XGBRegressor):
         def predict(self, data):
             _y = super().predict(data)
@@ -95,7 +100,7 @@ def XgBoostRegressor(X_train, y_train):
     # start_time = datetime.now()
 
     n_folds = 3
-
+   
 
     # Assurer que le nombre de plis n'est pas supérieur au nombre d'échantillons
     if n_folds > X_train.shape[0]:
@@ -103,7 +108,7 @@ def XgBoostRegressor(X_train, y_train):
     
     tscv = TimeSeriesSplit(n_splits=n_folds)
 
-    grid_xgb = GridSearchCV(xgb, param_grid, n_jobs=1, cv=tscv)
+    grid_xgb = DaskGridSearchCV(xgb, param_grid, n_jobs=n_jobs, cv=tscv) #, 
     
     # grid_xgb.fit(X_train, y_train)
     # Set the maximum execution time in seconds
@@ -113,6 +118,7 @@ def XgBoostRegressor(X_train, y_train):
 
     while (time.time() - start_time) < max_time:
         try:
+            
             grid_xgb.fit(X_train, y_train)
             break  # Exit the loop if fit completes within the time limit
         except TimeoutError:
@@ -171,7 +177,7 @@ def LightBMRegressor(X_train, y_train):
     
     
     tscv = TimeSeriesSplit(n_splits=3)
-    grid_lgb = GridSearchCV(lgb, param_grid,  n_jobs=1, cv=tscv)
+    grid_lgb = DaskGridSearchCV(lgb, param_grid,  n_jobs=n_jobs, cv=tscv)
     
     # grid_lgb.fit(X_train, y_train)
     # Set the maximum execution time in seconds
@@ -180,6 +186,7 @@ def LightBMRegressor(X_train, y_train):
     start_time = time.time()
     while (time.time() - start_time) < max_time:
         try:
+            
             grid_lgb.fit(X_train, y_train)
             break  # Exit the loop if fit completes within the time limit
         except TimeoutError:
@@ -649,7 +656,7 @@ def ModelChoice(final_df, exogenous, target) :
 
 
 
-def process_data(Product_parametre_json,Product_features_json, Product_quantity_json, Product_future_features_json, Product_Id_produit_json) :
+def process_data(Product_parametre_json,Product_features_json, Product_quantity_json, Product_future_features_json) :
     ##### 
     #Il faut que face une fonction pour retraiter les données : 
     #####
