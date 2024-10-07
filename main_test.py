@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
 # test afin  de pouvoir répliquer arima
 import AllModels
+from waitress import serve
 from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, ProcessPoolExecutor, wait
 import pandas as pd
 import numpy as np
 import json
+
 
 
 
@@ -78,6 +80,8 @@ def receive_data2():
 
 @app.route('/api/modelbooper/prixpermanent', methods=['POST'])
 def receive_data():
+
+
     
     Product_parametre_json = request.json['LIST_PARAMETRE']
     Product_features_json = request.json['LIST_HISTO']
@@ -111,6 +115,7 @@ def receive_data():
     
 if __name__ == '__main__':
     print("Hello API BOOPER !")
-   # app.run(host='0.0.0.0', port=5000, debug=True)
-    app.run(debug=True)
-    
+    app.debug = False
+    serve(app, host='0.0.0.0', port=8080, threads=10)
+    #with ThreadPoolExecutor(max_workers=10) as executor:
+    #    executor.map(app.run(host='0.0.0.0', port=8080))
