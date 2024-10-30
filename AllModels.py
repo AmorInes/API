@@ -706,24 +706,25 @@ def process_data(Product_parametre_json,Product_features_json, Product_quantity_
     #Handle NaNs: 
     #fill them with a specific value, like zero: 
     final_df.fillna(0, inplace=True)
-    
-    
+
     x_future = pd.DataFrame(Product_future_features_json) 
- 
-    # The choice of prediction set 
     nb_jours = len(x_future)
-    target = 'QUANTITE'
-
-
-    x_future =  x_future.set_index('DATE_TMP')
+    if nb_jours >0 : 
     
-        # Convert object columns to numeric
-    for col in exogenous:
-        if x_future[col].dtype == 'object':
-            try:
-                x_future[col] = pd.to_numeric(x_future[col], errors='coerce')
-            except Exception as e:
-                print(f"Error converting column {col}: {e}")
+        # The choice of prediction set 
+        
+        target = 'QUANTITE'
+
+        if 'DATE_TMP' in x_future.columns :
+            x_future =  x_future.set_index('DATE_TMP')
+        
+            # Convert object columns to numeric
+        for col in exogenous:
+            if x_future[col].dtype == 'object':
+                try:
+                    x_future[col] = pd.to_numeric(x_future[col], errors='coerce')
+                except Exception as e:
+                    print(f"Error converting column {col}: {e}")
 
     # Drop any columns that still have object dtype
     final_df = final_df.select_dtypes(exclude=['object'])
@@ -948,5 +949,154 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
 
 
     return json_output
+
+def format_date_in_predictions(preds_converted):
+    """Helper function to format dates in predictions"""
+    for key, values in preds_converted.items():
+        if isinstance(values, list) and values and isinstance(values[0], dict) and 'date' in values[0]:
+            for pred in values:
+                # Convert the date string to datetime then back to desired format
+                date_obj = datetime.strptime(pred['date'], '%Y-%m-%d %H:%M:%S')
+                pred['date'] = date_obj.strftime('%d/%m/%Y')
+    return preds_converted
+
+
+def GET_process_product_Version_chain(x_future, final_df, target, nb_jours, exogenous, id_produit, id_so, model_list):
+    final_df.index = pd.to_datetime(final_df.index,format='%d/%m/%Y')
+    
+  # Extract lists from model_list DataFrame
+    feature_Model_list = model_list['FEATURES_MODEL'].tolist()
+    model_name_list =  model_list['MODEL_NAME'].tolist()
+    parm_model_list = model_list['PARAM_MODEL'].tolist()
+    date_import_list = model_list['DATE_IMPORT'].tolist()
+    
+    #print(date_import_list[0])
+    #print(type(date_import_list[0]))
+    # Sort the indices based on dates
+    sorted_indices = sorted(range(len(date_import_list)), 
+                          key=lambda i: datetime.strptime(date_import_list[i], '%d/%m/%Y'))
+    
+    # Sort all lists using the sorted indices
+    feature_Model_list = [feature_Model_list[i] for i in sorted_indices]
+    parm_model_list = [parm_model_list[i] for i in sorted_indices]
+    date_import_list = [date_import_list[i] for i in sorted_indices]
+    
+    # Initialize combined predictions dictionary
+    combined_preds = {}
+    combined_preds['QUANTITE_AJUSTE'] = []
+    combined_preds['QUANTITE_0'] = []
+    
+    # Initialize price variation predictions
+    last_price = final_df['PARAM_PRIX'].iloc[-1]
+    prix_min = last_price * 0.9
+    prix_max = last_price * 1.1
+    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1, NB_PRIX)]
+    vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
+    
+    for prix_idx in range(len(vec_prix_test)):
+        combined_preds[f'PRIX_{prix_idx + 1}'] = []
+    
+    for promo in vec_promo_test:
+        combined_preds[f'PROMO_{int(promo * 100)}'] = []
+    
+    # Process each model
+    for i in range(len(date_import_list)):
+        # Get the date range for this model
+        # print(f"Processing Model {i + 1}/{len(date_import_list)}")
+        # print(date_import_list[i])
+
+
+        # print(f"\nOriginal date string: {date_import_list[i]}")
+        start_date = datetime.strptime(date_import_list[i], '%d/%m/%Y')
+        # print(f"Parsed start_date: {start_date}")
+
+
+        if i < len(date_import_list) - 1:
+            end_date = datetime.strptime(date_import_list[i + 1], '%d/%m/%Y')
+        else:
+            # For the last model, use the last date in x_future
+            end_date = final_df.index[-1]
+
+        # print(f"\nBefore filtering:")
+        # print(f"final_df date range: {final_df.index.min()} to {final_df.index.max()}")
+        # print(f"final_df shape: {final_df.shape}")
+
+        # Filter data for this date range
+        mask = (final_df.index <= start_date)
+        period_df = final_df[mask].copy()
+        # print(f"\nAfter historical filtering (period_df):")
+        # print(f"Date range: {period_df.index.min()} to {period_df.index.max()}")
+        # print(f"Shape: {period_df.shape}")
+        
+        future_mask = (final_df.index >= start_date) & (final_df.index < end_date)
+        period_future = final_df[future_mask].copy()
+        # print(f"\nAfter future filtering (period_future):")
+        # print(f"Date range: {period_future.index.min()} to {period_future.index.max()}")
+        # print(f"Shape: {period_future.shape}")
+        
+
+        # Get predictions for this period
+        if len(period_df) > 0 or len(period_future) > 0:
+            # print("\nCalling GET_process_product_Version with:")
+            # print(f"period_future shape: {period_future.shape}")
+            # print(f"period_df shape: {period_df.shape}")
+            # print(f"nb_jours: {len(period_future)}")
+            # print(f"model_name: {model_name_list[i]}")
+            period_preds = GET_process_product_Version(
+                period_future, 
+                period_df,
+                target,
+                len(period_future),
+                exogenous,
+                id_produit,
+                id_so,
+                start_date,
+                model_name_list[i],
+                feature_Model_list[i],
+                parm_model_list[i]
+            )
+            
+            # Parse predictions and append to combined results
+            period_preds = json.loads(period_preds)
+            # print("\nPrediction Results:")
+            # for key in period_preds:
+            #     if isinstance(period_preds[key], list):
+            #         print(f"{key}: {len(period_preds[key])} predictions")
+            #     else:
+            #         print(f"{key}: {type(period_preds[key])}")
+            
+            # Extend combined predictions
+            for key in combined_preds.keys():
+                if key in period_preds:
+                    original_len = len(combined_preds[key])
+                    combined_preds[key].extend(period_preds[key])
+                    # print(f"\nExtended {key}: {original_len} -> {len(combined_preds[key])}")
+
+
+    # Convert combined predictions to the desired format
+    preds_converted = {}
+    for key, values in combined_preds.items():
+        preds_converted[key] = values
+    
+    # print(preds_converted['QUANTITE_0'])
+    # Add additional information
+    preds_converted['PRIX_INTERVAL'] = vec_prix_test
+    preds_converted['OK'] = str(1)
+
+    preds_converted = format_date_in_predictions(preds_converted)
+
+    # Final results summary with new format
+    # print("\n" + "="*50)
+    # print("Final Results Summary (with formatted dates):")
+    # print("="*50)
+    # for key in preds_converted:
+    #     if isinstance(preds_converted[key], list):
+    #         print(f"{key}: {len(preds_converted[key])} total predictions")
+    #         if len(preds_converted[key]) > 0:
+    #             print(f"First prediction: {preds_converted[key][0]}")
+    #             print(f"Last prediction: {preds_converted[key][-1]}")
+
+    # Convert to JSON
+    return json.dumps(preds_converted)
 
 
