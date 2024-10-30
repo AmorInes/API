@@ -56,6 +56,7 @@ def receive_data2():
 
 
 
+
     if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
         
 
@@ -105,6 +106,75 @@ def receive_data():
     
     
 
+@app.route('/api/modelbooper/prev_reel', methods=['POST'])
+def receive_data3():
+
+
+# for(int i = 0 i<lenght ListModel_parametre_json){ 
+#     features_model = ListModel_parametre_json.json["FEATURES_MODEL"]
+#     parm_model = ListModel_parametre_json.json["PARAM_MODEL"]
+#     Product_parametre_json = ListModel_parametre_json.json['LIST_PARAMETRE']
+#     date_import_S = ListModel_parametre_json.json['DATE_IMPORT']
+
+#     HISTO_i = request.json['LIST_HISTO']  (date_imprt<date_import_S)
+#     FUTURE_i = request.json['LIST_HISTO']  (date_imprt>=date_import_S)
+
+# /*
+#     Product_parametre_json = request.json['LIST_PARAMETRE']
+#     Product_features_json = request.json['LIST_HISTO']
+#     Product_quantity_json = request.json['LIST_QUANTITE']
+#     Product_future_features_json = request.json['LIST_FUTURE']
+#     Product_Id_produit_json = request.json['ID_PRODUIT']
+#     So_Id_json = request.json.get('ID_SO', 0)
+#     date_import = request.json['DATE_IMPORT']
+#     Product_ID_TARIF = 0
+#     features_model = request.json["FEATURES_MODEL"]
+#     parm_model = request.json["PARAM_MODEL"]
+#     date_import = request.json["DATE_IMPORT"]
+#     model_name = request.json["MODEL_NAME"]
+#     */
+
+#     if(lenght FUTURE_i = 0){stop}
+#     listPrevReel[i] = receive_data2();
+
+# }
+
+# listPrevReel_1,listPrevReel_2
+    ListModel_parametre_json = request.json['LIST_MODELE']
+    Product_parametre_json = request.json['LIST_PARAMETRE']
+    Product_features_json = request.json['LIST_HISTO'] #   historique  hhhhhhhhh   <DATE_IMPORT   LIST FUTUR
+    Product_quantity_json = request.json['LIST_QUANTITE']
+    Product_Id_produit_json = request.json['ID_PRODUIT']
+    So_Id_json = request.json.get('ID_SO', 0)
+    Product_ID_TARIF = 0
+    ListModel_parametre_json = request.json['LIST_MODELE']
+
+    df_ListHisto_features =  pd.DataFrame(Product_features_json)
+    print(df_ListHisto_features[-100:])
+    print(df_ListHisto_features.columns)
+
+    # features_model = request.json["FEATURES_MODEL"]
+    # parm_model = request.json["PARAM_MODEL"]
+    print('On a trouvé un modèle !!')
+
+    if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 and len(ListModel_parametre_json) > 0 : 
+        df_ListModel_parametre = pd.DataFrame(ListModel_parametre_json)
+        df_models =  pd.DataFrame(ListModel_parametre_json)
+
+        Product_future_features_json = []    
+        x_future, final_df, target, nb_jours, exogenous = AllModels.process_data(Product_parametre_json,Product_features_json, Product_quantity_json, Product_future_features_json)
+        # GET_process_product_Version_chain(x_future, final_df, target, nb_jours, exogenous, id_produit, id_so, model_list, feature_Model_list, parm_model_list)
+        result =  AllModels.GET_process_product_Version_chain(x_future, final_df, target, nb_jours, exogenous, Product_Id_produit_json, So_Id_json, df_models)
+            
+            # print(result)
+    return result,200
+
+
+    # else : 
+    #     results = {}
+    #     results['OK'] = str(0)
+    #     json_string = json.dumps(results)
+    #     return json_string, 200 
 
     
 
@@ -113,8 +183,10 @@ def receive_data():
 
     
 if __name__ == '__main__':
+
     print("Hello! API BOOPER!")
     app.debug = False
     serve(app, host='0.0.0.0', port=8080, threads=10)
+
     #with ThreadPoolExecutor(max_workers=10) as executor:
     #    executor.map(app.run(host='0.0.0.0', port=8080))
