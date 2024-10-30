@@ -614,8 +614,9 @@ def ModelChoice(final_df, exogenous, target) :
         #model, best_params = XgBoostRegressor(final_df[exogenous], final_df[target]) # pas besoin de relancer le gridsearch --> on refit uniquement avec les best-param
         model = GETXgboostRegressor(final_df[exogenous], final_df[target],best_params_xgb)
         best_params = best_params_xgb
-        precision = accuracy_score(X_test[target], y_pred_xgb)
-        percentage_accuracy = precision * 100
+        #precision = accuracy_score(X_test[target], y_pred_xgb)
+        #percentage_accuracy = precision * 100
+        percentage_accuracy = None
 
         ##recision selon erreur Booper
         if sum_target <= 10:
@@ -632,8 +633,10 @@ def ModelChoice(final_df, exogenous, target) :
         #model,best_params = LightBMRegressor(final_df[exogenous], final_df[target]) # pas besoin de relancer le gridsearch --> on refit uniquement avec les best-param
         model = GETLightBMRegressor(final_df[exogenous], final_df[target], best_params_Light)
         best_params = best_params_Light
-        precision = accuracy_score(X_test[target], y_pred_Light)
-        percentage_accuracy = precision * 100
+        #precision = accuracy_score(X_test[target], y_pred_Light)
+        #percentage_accuracy = precision * 100
+        percentage_accuracy = None
+
 
 
         ##Precision selon erreur Booper

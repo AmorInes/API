@@ -25,7 +25,6 @@ NB_PRIX = 6
 
 
 def version_SET(Product_parametre_json,Product_features_json, Product_quantity_json, Product_future_features_json, ID_SO_request, Product_Id_produit_json) : 
-
     x_future, final_df, target, nb_jours, exogenous = AllModels.process_data(Product_parametre_json,Product_features_json, Product_quantity_json, Product_future_features_json)
     results = AllModels.SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous, Product_Id_produit_json, ID_SO_request)
     print(f"je suis là ! Avec le produit {Product_Id_produit_json}")
@@ -48,7 +47,6 @@ def receive_data2():
     Product_future_features_json = request.json['LIST_FUTURE']
     Product_Id_produit_json = request.json['ID_PRODUIT']
     So_Id_json = request.json.get('ID_SO', 0)
-    date_import = request.json['DATE_IMPORT']
     Product_ID_TARIF = 0
     features_model = request.json["FEATURES_MODEL"]
     parm_model = request.json["PARAM_MODEL"]
@@ -80,33 +78,34 @@ def receive_data2():
 
 @app.route('/api/modelbooper/prixpermanent', methods=['POST'])
 def receive_data():
-
-
-    
-    Product_parametre_json = request.json['LIST_PARAMETRE']
-    Product_features_json = request.json['LIST_HISTO']
-    Product_quantity_json = request.json['LIST_QUANTITE']
-    Product_future_features_json = request.json['LIST_FUTURE']
-    Product_Id_produit_json = request.json['ID_PRODUIT']
-    ID_SO_request = request.json.get('ID_SO', 0)
+    try : 
+        Product_parametre_json = request.json['LIST_PARAMETRE']
+        Product_features_json = request.json['LIST_HISTO']
+        Product_quantity_json = request.json['LIST_QUANTITE']
+        Product_future_features_json = request.json['LIST_FUTURE']
+        Product_Id_produit_json = request.json['ID_PRODUIT']
+        ID_SO_request = request.json.get('ID_SO', 0)
 
   
 
-    if len(Product_features_json) > 0 and len(Product_quantity_json) > 0 : 
-       
+        if not Product_features_json or not Product_quantity_json:
+            return jsonify({'OK': 0, 'message': 'Données manquantes'}), 400
+
+        if len(Product_features_json) > 0 and len(Product_quantity_json) > 0:
+            result = version_SET(Product_parametre_json, Product_features_json, Product_quantity_json, Product_future_features_json, ID_SO_request, Product_Id_produit_json)
+            return result
+
+        else:
+            return jsonify({'OK': 0, 'message': 'Les données sont vides après vérification'}), 400
+
+    except IndexError as e:
+        return jsonify({'OK': 0, 'message': 'Erreur d\'index : vérifiez les données entrantes'}), 400
+    except Exception as e:
+        return jsonify({'OK': 0, 'message': str(e)}), 500
     
-        result = version_SET(Product_parametre_json,Product_features_json, Product_quantity_json, Product_future_features_json, ID_SO_request, Product_Id_produit_json)
-
-       # print(result)
-        return result,200
-
-
-    else : 
-        results = {}
-        results['OK'] = str(0)
-        json_string = json.dumps(results)
-        return json_string, 200 
     
+
+
     
 
 
@@ -114,7 +113,7 @@ def receive_data():
 
     
 if __name__ == '__main__':
-    print("Hello API BOOPER !")
+    print("Hello! API BOOPER!")
     app.debug = False
     serve(app, host='0.0.0.0', port=8080, threads=10)
     #with ThreadPoolExecutor(max_workers=10) as executor:
