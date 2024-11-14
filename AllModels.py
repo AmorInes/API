@@ -557,7 +557,7 @@ def XgBoost_elasticities(X_test, exogenous, model):
 
 
 def split_df(x_final) : 
-    nb_jour = min(90,int(len(x_final)*0.3))
+    nb_jour = min(365,int(len(x_final)*0.3)) 
     x_train = x_final[:-nb_jour]
     x_test = x_final[-nb_jour:]
     return x_train, x_test
@@ -618,15 +618,33 @@ def ModelChoice(final_df, exogenous, target) :
         #percentage_accuracy = precision * 100
         percentage_accuracy = None
 
-        ##recision selon erreur Booper
-        if sum_target <= 10:
-            # Gérer le cas où la somme est 0
+        ##Precision selon erreur Booper
+        if error_xgb == 0: 
             percentage_error_global = float(0)  
             percentage_accuracy_global = 100 - percentage_error_global
-        else:
-            # Calcul du pourcentage d'erreur
-            percentage_error_global = (error_xgb / sum_target) * 100
-            percentage_accuracy_global = 100 - percentage_error_global
+        else : 
+            # if sum_target == 0 :   
+            #     # Gérer le cas où la somme est 0
+            #     percentage_error_global = float(100)  
+            #     percentage_accuracy_global = 100 - percentage_error_global
+            if sum_target == 0 :   
+                # Gérer le cas où le produit est très peu vendu 
+                percentage_accuracy_global = None
+            else :
+                # Calcul du pourcentage d'erreur
+                percentage_error_global = (error_xgb / sum_target) * 100
+                percentage_accuracy_global = 100 - percentage_error_global
+
+
+        # ##recision selon erreur Booper
+        # if sum_target <= 10:
+        #     # Gérer le cas où la somme est 0
+        #     percentage_error_global = float(0)  
+        #     percentage_accuracy_global = 100 - percentage_error_global
+        # else:
+        #     # Calcul du pourcentage d'erreur
+        #     percentage_error_global = (error_xgb / sum_target) * 100
+        #     percentage_accuracy_global = 100 - percentage_error_global
 
     elif best_model == 'lightgbm':
         print("LGBM final")
@@ -640,17 +658,34 @@ def ModelChoice(final_df, exogenous, target) :
 
 
         ##Precision selon erreur Booper
-        if sum_target <= 10:
-            # Gérer le cas où la somme est 0
+        if error_Light == 0: 
             percentage_error_global = float(0)  
             percentage_accuracy_global = 100 - percentage_error_global
-        else:
-            # Calcul du pourcentage d'erreur
-            percentage_error_global = (error_Light / sum_target) * 100
-            percentage_accuracy_global = 100 - percentage_error_global
+        else : 
+            # if sum_target == 0 :   
+            #     # Gérer le cas où la somme est 0
+            #     percentage_error_global = float(100)  
+            #     percentage_accuracy_global = 100 - percentage_error_global
+            if sum_target == 0 :   
+                # Gérer le cas où le la somme des quantité reelle dans test est 0 (division impossible)
+                percentage_accuracy_global = None
+            else :
+                # Calcul du pourcentage d'erreur
+                percentage_error_global = (error_Light / sum_target) * 100
+                percentage_accuracy_global = 100 - percentage_error_global
+
+        # ##Precision selon erreur Booper
+        # if sum_target <= 10:
+        #     # Gérer le cas où la somme est 0
+        #     percentage_error_global = float(0)  
+        #     percentage_accuracy_global = 100 - percentage_error_global
+        # else:
+        #     # Calcul du pourcentage d'erreur
+        #     percentage_error_global = (error_Light / sum_target) * 100
+        #     percentage_accuracy_global = 100 - percentage_error_global
 
     if percentage_accuracy_global < 0 :
-        percentage_accuracy_global = 0
+         percentage_accuracy_global = 0
         
     #print(f"Percentage Precicion : {percentage_accuracy}")
         
@@ -761,12 +796,14 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     
     # Some variation test
     #prix_min = min(final_df['PARAM_PRIX'])
-    #prix_max = max(final_df['PARAM_PRIX'])
-
+    # prix_max = max(final_df['PARAM_PRIX'])
     last_price = final_df['PARAM_PRIX'].iloc[-1]
-
+    
     prix_min = last_price * 0.9
     prix_max = last_price * 1.1
+
+    # print("prix_min", prix_min  )
+    # print("Last Price", last_price )
 
     vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1,NB_PRIX)]
     #print(vec_prix_test)
@@ -871,12 +908,15 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     
     
     # Some variation test
-    # prix_min = min(final_df['PARAM_PRIX'])
+    #prix_min = min(final_df['PARAM_PRIX'])
     # prix_max = max(final_df['PARAM_PRIX'])
     last_price = final_df['PARAM_PRIX'].iloc[-1]
-
+    
     prix_min = last_price * 0.9
     prix_max = last_price * 1.1
+
+    # print("prix_min", prix_min  )
+    # print("Last Price", last_price )
 
     vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1,NB_PRIX)]
     # print(vec_prix_test)
@@ -949,9 +989,8 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     json_output = json.dumps(preds_converted)
 
 
-
-
     return json_output
+
 
 def format_date_in_predictions(preds_converted):
     """Helper function to format dates in predictions"""
