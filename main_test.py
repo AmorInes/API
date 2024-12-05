@@ -150,8 +150,8 @@ def receive_data3():
     ListModel_parametre_json = request.json['LIST_MODELE']
 
     df_ListHisto_features =  pd.DataFrame(Product_features_json)
-    print(df_ListHisto_features[-100:])
-    print(df_ListHisto_features.columns)
+    #print(df_ListHisto_features[-100:])
+    #print(df_ListHisto_features.columns)
 
     # features_model = request.json["FEATURES_MODEL"]
     # parm_model = request.json["PARAM_MODEL"]

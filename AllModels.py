@@ -32,12 +32,14 @@ NB_PRIX = 6
 
 
 
+#class XGBRegressorInt(xgboost.XGBRegressor):
+#     def predict(self, data):
+#         _y = super().predict(data)
+#         return np.asarray(_y, dtype=np.intc)
 
-
-# def XgBoostRegressor(X_train, y_train):
-
-#     xgb = XGBRegressorInt()
-#     param_dist = { 
+# def XgBoostRegressor(X_train, y_train, patience=3, tol=1e-4):
+#     # XGBoost hyperparameters pour la recherche
+#     param_grid = { 
 #         'objective': ['reg:squarederror'],
 #         'learning_rate': [0.03],
 #         'reg_lambda': [1],
@@ -48,32 +50,65 @@ NB_PRIX = 6
 #         'colsample_bytree': [0.8],
 #     }
 
-#     n_folds = min(3, X_train.shape[0])
+#     # Assurer que le nombre de plis n'est pas supérieur au nombre d'échantillons
+#     n_folds = 3
+#     if n_folds > X_train.shape[0]:
+#         raise ValueError(f"Le nombre de plis ({n_folds}) est supérieur au nombre d'échantillons ({X_train.shape[0]})")
+    
 #     tscv = TimeSeriesSplit(n_splits=n_folds)
 
-#     random_search = RandomizedSearchCV(xgb, param_distributions=param_dist, n_iter=10, cv=tscv, n_jobs=2)
+#     # Initialiser DaskGridSearchCV
+#     xgb = XGBRegressorInt()
+#     grid_xgb = DaskGridSearchCV(xgb, param_grid, n_jobs=-1, cv=tscv)
     
-#     max_time = 60  # Augmenté à 60 secondes
+#     # Initialiser des variables pour early stopping
+#     best_score = -np.inf
+#     no_improvement = 0
 #     start_time = time.time()
+#     max_time = 20  # Temps limite en secondes
 
+#     # Lancer la recherche
 #     try:
-#         with parallel_backend('loky', n_jobs=2, inner_max_num_threads=1):
-#             with joblib.parallel.parallel_memory_limit(max_memory=1024 * 1024 * 1024):  # 1GB
-#                 random_search.fit(X_train, y_train)
+#         grid_xgb.fit(X_train, y_train)
+#         results = pd.DataFrame(grid_xgb.cv_results_)
+
+#         for i, row in results.iterrows():
+#             current_score = row['mean_test_score']
+
+#             # Vérifier l'amélioration
+#             if current_score > best_score + tol:
+#                 best_score = current_score
+#                 no_improvement = 0
+#             else:
+#                 no_improvement += 1
+
+#             # Vérifier les conditions d'arrêt
+#             if no_improvement >= patience or (time.time() - start_time) > max_time:
+#                 print("Early stopping activé.")
+#                 break
+
+#         # Récupérer les meilleurs hyperparamètres trouvés
+#         best_params = results.loc[results['mean_test_score'].idxmax(), "params"]
+#         #print("Meilleurs hyperparamètres trouvés :", best_params)
+
 #     except Exception as e:
-#         print(f"An error occurred during fitting: {str(e)}")
-#         return None, None
+#         print(f"Erreur ou interruption lors de GridSearchCV : {e}")
+#         best_params = {
+#             'objective': 'reg:squarederror',
+#             'learning_rate': 0.03,
+#             'reg_lambda': 1,
+#             'n_estimators': 1000,
+#             'max_depth': 3,
+#             'min_child_weight': 6,
+#             'gamma': 0,
+#             'colsample_bytree': 0.8,
+#         }
 
-#     if (time.time() - start_time) >= max_time:
-#         print(f"RandomizedSearchCV XGB fitting timed out after {max_time} seconds.")
-#         return None, None
-
-#     model_xgb = random_search.best_estimator_
+#     # Entraîner un modèle avec les meilleurs hyperparamètres trouvés
+#     model_xgb = XGBRegressorInt(**best_params)
 #     model_xgb.fit(X_train, y_train)
 
-#     print(f'Ceci est mon modèle xgboost {model_xgb}')
-
-#     return model_xgb, random_search.best_params_
+#     return model_xgb, best_params
 n_jobs  = -1
 class XGBRegressorInt(xgboost.XGBRegressor):
         def predict(self, data):
@@ -81,7 +116,7 @@ class XGBRegressorInt(xgboost.XGBRegressor):
             return np.asarray(_y, dtype=np.intc)
 
 
-def XgBoostRegressor(X_train, y_train):
+def XgBoostRegressor(X_train, y_train,patience=3, tol=1e-4):
    
     #XGBOOSTRegressor hyperparameters :
     xgb = XGBRegressorInt()
@@ -114,36 +149,54 @@ def XgBoostRegressor(X_train, y_train):
 
     grid_xgb = DaskGridSearchCV(xgb, param_grid, n_jobs=n_jobs, cv=tscv) 
     
-    # grid_xgb.fit(X_train, y_train)
-    # Set the maximum execution time in seconds
-    max_time = 20
-
+    # Initialiser des variables pour early stopping
+    best_score = -np.inf
+    no_improvement = 0
     start_time = time.time()
+    max_time = 20  # Temps limite en secondes
 
-    while (time.time() - start_time) < max_time:
-        try:
-            
-            grid_xgb.fit(X_train, y_train)
-            break  # Exit the loop if fit completes within the time limit
-        except TimeoutError:
-           pass
+    # Lancer la recherche
+    try:
+        grid_xgb.fit(X_train, y_train)
+        results = pd.DataFrame(grid_xgb.cv_results_)
 
-    # Check if fitting completed within the time limit
-    if (time.time() - start_time) >= max_time:
-        print("GridSearchCV XGB fitting timed out after", max_time, "seconds.")
+        for i, row in results.iterrows():
+            current_score = row['mean_test_score']
 
+            # Vérifier l'amélioration
+            if current_score > best_score + tol:
+                best_score = current_score
+                no_improvement = 0
+            else:
+                no_improvement += 1
 
+            # Vérifier les conditions d'arrêt
+            if no_improvement >= patience or (time.time() - start_time) > max_time:
+                print("XGB Early stopping activé")
+                break
 
-    model_xgb =  grid_xgb.best_estimator_
-    # fitting the model : 
+        # Récupérer les meilleurs hyperparamètres trouvés
+        best_params = results.loc[results['mean_test_score'].idxmax(), "params"]
+        #print("Meilleurs hyperparamètres trouvés XGB:", best_params)
+
+    except Exception as e:
+        print(f"Erreur ou interruption lors de GridSearchCV XGB : {e}")
+        best_params = {
+            'objective': 'reg:squarederror',
+            'learning_rate': 0.03,
+            'reg_lambda': 1,
+            'n_estimators': 1000,
+            'max_depth': 3,
+            'min_child_weight': 6,
+            'gamma': 0,
+            'colsample_bytree': 0.8,
+        }
+
+    # Entraîner un modèle avec les meilleurs hyperparamètres trouvés
+    model_xgb = XGBRegressorInt(**best_params)
     model_xgb.fit(X_train, y_train)
 
-
-    # end_time = datetime.now()
-    # elapsed_time = end_time - start_time
-    # print("Temps écoulé XBG:", elapsed_time)
-
-    return model_xgb, grid_xgb.best_params_
+    return model_xgb, best_params
 
 
 class LightBMRegressorInt(lightgbm.LGBMRegressor):
@@ -152,7 +205,7 @@ class LightBMRegressorInt(lightgbm.LGBMRegressor):
         _y = super().predict(data)
         return np.asarray(_y, dtype=np.intc)
 
-def LightBMRegressor(X_train, y_train):
+def LightBMRegressor(X_train, y_train,patience=3, tol=1e-4):
     
     #LightGBM hyperparameter 
     lgb = LightBMRegressorInt()
@@ -175,7 +228,6 @@ def LightBMRegressor(X_train, y_train):
 
     n_folds = 3
 
-
     # Assurer que le nombre de plis n'est pas supérieur au nombre d'échantillons
     if n_folds > X_train.shape[0]:
         raise ValueError(f"Le nombre de plis ({n_folds}) est supérieur au nombre d'échantillons ({X_train.shape[0]})")
@@ -184,32 +236,55 @@ def LightBMRegressor(X_train, y_train):
     tscv = TimeSeriesSplit(n_splits=3)
     grid_lgb = DaskGridSearchCV(lgb, param_grid,  n_jobs=n_jobs, cv=tscv)
     
-    # grid_lgb.fit(X_train, y_train)
-    # Set the maximum execution time in seconds
-    max_time = 20
-
+    # Initialiser des variables pour early stopping
+    best_score = -np.inf
+    no_improvement = 0
     start_time = time.time()
-    while (time.time() - start_time) < max_time:
-        try:
-            
-            grid_lgb.fit(X_train, y_train)
-            break  # Exit the loop if fit completes within the time limit
-        except TimeoutError:
-            pass  # Handle timeout gracefully (optional)
-    # Check if fitting completed within the time limit
-    if (time.time() - start_time) >= max_time:
-        print("GridSearchCV LGBM fitting timed out after", max_time, "seconds.")
+    max_time = 20  # Temps limite en secondes
 
-    # fitting the model : 
-    
-    model_lgb =  grid_lgb.best_estimator_
-    
+    # Lancer la recherche
+    try:
+        grid_lgb.fit(X_train, y_train)
+        results = pd.DataFrame(grid_lgb.cv_results_)
+
+        for i, row in results.iterrows():
+            current_score = row['mean_test_score']
+
+            # Vérifier l'amélioration
+            if current_score > best_score + tol:
+                best_score = current_score
+                no_improvement = 0
+            else:
+                no_improvement += 1
+
+            # Vérifier les conditions d'arrêt
+            if no_improvement >= patience or (time.time() - start_time) > max_time:
+                print("LBGM Early stopping activé")
+                break
+
+        # Récupérer les meilleurs hyperparamètres trouvés
+        best_params = results.loc[results['mean_test_score'].idxmax(), "params"]
+        #print("Meilleurs hyperparamètres trouvés LGBM:", best_params)
+
+    except Exception as e:
+        print(f"Erreur ou interruption lors de GridSearchCV LGBM: {e}")
+        best_params = {
+            'num_leaves': 16,
+            'reg_lambda': 1,
+            'min_child_samples': 6,
+            'learning_rate': 0.03,
+            'subsample': 0.6,
+            'max_depth': 5,
+            'n_estimators': 1000,
+            'force_row_wise': True,
+            'verbose': -1,
+    }
+
+    # Entraîner un modèle avec les meilleurs hyperparamètres trouvés
+    model_lgb = LightBMRegressorInt(**best_params)
     model_lgb.fit(X_train, y_train)
-    # end_time = datetime.now()
-    # elapsed_time = end_time - start_time
-    # print("Temps écoulé LBM:", elapsed_time)
 
-    return model_lgb, grid_lgb.best_params_
+    return model_lgb, best_params
 
 
 
@@ -628,7 +703,7 @@ def ModelChoice(final_df, exogenous, target) :
             #     percentage_error_global = float(100)  
             #     percentage_accuracy_global = 100 - percentage_error_global
             if sum_target == 0 :   
-                # Gérer le cas où le produit est très peu vendu 
+                # Gérer le cas où la somme est 0
                 percentage_accuracy_global = None
             else :
                 # Calcul du pourcentage d'erreur
@@ -685,12 +760,12 @@ def ModelChoice(final_df, exogenous, target) :
         #     percentage_accuracy_global = 100 - percentage_error_global
 
     if percentage_accuracy_global < 0 :
-         percentage_accuracy_global = 0
+        percentage_accuracy_global = 0
         
     #print(f"Percentage Precicion : {percentage_accuracy}")
         
 
-    print(f"Le temps d'execution est {time.time()-start_time} seconds.")
+    print(f"Le temps d'execution est {(time.time()-start_time)} seconds.")
 
     return best_model, model, best_error, percentage_accuracy, percentage_accuracy_global, best_params
 
@@ -1050,7 +1125,7 @@ def GET_process_product_Version_chain(x_future, final_df, target, nb_jours, exog
 
         # print(f"\nOriginal date string: {date_import_list[i]}")
         start_date = datetime.strptime(date_import_list[i], '%d/%m/%Y')
-        # print(f"Parsed start_date: {start_date}")
+        #print(f"Parsed start_date: {start_date}")
 
 
         if i < len(date_import_list) - 1:
@@ -1058,7 +1133,7 @@ def GET_process_product_Version_chain(x_future, final_df, target, nb_jours, exog
         else:
             # For the last model, use the last date in x_future
             end_date = final_df.index[-1]
-
+        #print(f"Parsed end_date: {end_date}")
         # print(f"\nBefore filtering:")
         # print(f"final_df date range: {final_df.index.min()} to {final_df.index.max()}")
         # print(f"final_df shape: {final_df.shape}")
@@ -1072,6 +1147,7 @@ def GET_process_product_Version_chain(x_future, final_df, target, nb_jours, exog
         
         future_mask = (final_df.index >= start_date) & (final_df.index < end_date)
         period_future = final_df[future_mask].copy()
+        #print(len(period_future))
         # print(f"\nAfter future filtering (period_future):")
         # print(f"Date range: {period_future.index.min()} to {period_future.index.max()}")
         # print(f"Shape: {period_future.shape}")
