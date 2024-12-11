@@ -22,10 +22,13 @@ from dask_ml.model_selection import GridSearchCV as DaskGridSearchCV
 
 warnings.filterwarnings("ignore")
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", message="No further splits with positive gain, best gain: -inf")
 # Ignorer les avertissements spécifiques de XGBoost
 warnings.filterwarnings("ignore", category=FutureWarning, module='xgboost.core')
+warnings.filterwarnings("ignore", category=FutureWarning, module="dask.dataframe")
+
 
 
 NB_PRIX = 6

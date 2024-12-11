@@ -6,10 +6,16 @@ from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, ProcessPoolExe
 import pandas as pd
 import numpy as np
 import json
+import warnings
 
-
-
-
+warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="No further splits with positive gain, best gain: -inf")
+# Ignorer les avertissements spécifiques de XGBoost
+warnings.filterwarnings("ignore", category=FutureWarning, module='xgboost.core')
+warnings.filterwarnings("ignore", category=FutureWarning, module="dask.dataframe")
 
 
 
@@ -165,16 +171,14 @@ def receive_data3():
         x_future, final_df, target, nb_jours, exogenous = AllModels.process_data(Product_parametre_json,Product_features_json, Product_quantity_json, Product_future_features_json)
         # GET_process_product_Version_chain(x_future, final_df, target, nb_jours, exogenous, id_produit, id_so, model_list, feature_Model_list, parm_model_list)
         result =  AllModels.GET_process_product_Version_chain(x_future, final_df, target, nb_jours, exogenous, Product_Id_produit_json, So_Id_json, df_models)
-            
-            # print(result)
-    return result,200
+        return result,200
 
 
-    # else : 
-    #     results = {}
-    #     results['OK'] = str(0)
-    #     json_string = json.dumps(results)
-    #     return json_string, 200 
+    else : 
+        results = {}
+        results['OK'] = str(0)
+        json_string = json.dumps(results)
+        return json_string, 200 
 
     
 
