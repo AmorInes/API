@@ -31,6 +31,9 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="dask.dataframe
 
 
 
+
+
+
 NB_PRIX = 6
 
 
@@ -696,6 +699,22 @@ def ModelChoice(final_df, exogenous, target) :
         #percentage_accuracy = precision * 100
         percentage_accuracy = None
 
+        # Calcul de MAE
+        mae = mean_absolute_error(y_pred_xgb, X_test[target])
+        # print("MAE:", mae)
+
+        # Calcul de MSE
+        mse = mean_squared_error(y_pred_xgb, X_test[target])
+        # print("MSE:", mse)
+
+        # Calcul de RMSE
+        rmse = np.sqrt(mse)
+        # print("RMSE:", rmse)
+
+        # Calcul de MAPE
+        # mape = np.mean(np.abs((X_test[target] - y_pred_xgb) / X_test[target])) * 100
+        # print("MAPE:", mape)
+
         ##Precision selon erreur Booper
         if error_xgb == 0: 
             percentage_error_global = float(0)  
@@ -733,7 +752,21 @@ def ModelChoice(final_df, exogenous, target) :
         #percentage_accuracy = precision * 100
         percentage_accuracy = None
 
+        # Calcul de MAE
+        mae = mean_absolute_error(y_pred_Light, X_test[target])
+        # print("MAE:", mae)
 
+        # Calcul de MSE
+        mse = mean_squared_error(y_pred_Light, X_test[target])
+        # print("MSE:", mse)
+
+        # Calcul de RMSE
+        rmse = np.sqrt(mse)
+        # print("RMSE:", rmse)
+
+        # Calcul de MAPE
+        # mape = np.mean(np.abs((X_test[target] - y_pred_xgb) / X_test[target])) * 100
+        # print("MAPE:", mape)
 
         ##Precision selon erreur Booper
         if error_Light == 0: 
@@ -770,7 +803,7 @@ def ModelChoice(final_df, exogenous, target) :
 
     print(f"Le temps d'execution est {(time.time()-start_time)} seconds.")
 
-    return best_model, model, best_error, percentage_accuracy, percentage_accuracy_global, best_params
+    return best_model, model, best_error, percentage_accuracy, percentage_accuracy_global, best_params, mae, rmse
 
 
 
@@ -792,8 +825,8 @@ def process_data(Product_parametre_json,Product_features_json, Product_quantity_
                 df['QUANTITE'] = quantity
                 dfs.append(df)
             except Exception as e:
-                print(f"Error processing features: {features}, quantity: {quantity}. Error: {e}")
-
+                #print(f"Error processing features: {features}, quantity: {quantity}. Error: {e}")
+                print("Error processing")
         if not dfs:
             print("No dataframes were created. Check the input data.")
     else:
@@ -822,6 +855,26 @@ def process_data(Product_parametre_json,Product_features_json, Product_quantity_
     #Handle NaNs: 
     #fill them with a specific value, like zero: 
     final_df.fillna(0, inplace=True)
+
+    #     # Détermination de la granularité temporelle
+    # if len(final_df) > 1:
+    #     min_diff = final_df.index.to_series().diff().min()
+    #     is_weekly = min_diff >= pd.Timedelta(weeks=1)
+    # else:
+    #     is_weekly = False
+
+    # # Création de x_future
+    # x_future = pd.DataFrame(Product_future_features_json)
+    # nb_jours = len(x_future)
+
+    # if nb_jours > 0:
+    #     if 'DATE_TMP' in x_future.columns:
+    #         x_future['DATE_TMP'] = pd.to_datetime(x_future['DATE_TMP'])
+    #         x_future = x_future.set_index('DATE_TMP')
+
+    #         # Ajustement de la granularité temporelle
+    #         if is_weekly:
+    #             x_future = x_future.resample('W').mean().reset_index()
 
     x_future = pd.DataFrame(Product_future_features_json) 
     nb_jours = len(x_future)
@@ -885,7 +938,7 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
 
     vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1,NB_PRIX)]
     #print(vec_prix_test)
-    vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
+    
     
     # Change prediction values with the price
     cpt = 0
@@ -896,12 +949,36 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     
     x_future['PARAM_PRIX'] = [last_price] * nb_jours 
 
-    # Change prediction values with the promotion value
+    # promo classique sans type promo 
+    vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
+
     for promo in vec_promo_test: 
         x_future['PARAM_PROMO'] = [promo] * nb_jours
         preds[f'PROMO_{int(promo * 100)}'] = ModelPrediction(model, x_future[final_features])
         
-    
+    """ # Variation des promotions model promo type promo
+    vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
+
+    # Identifier les colonnes correspondant aux types de promotions
+    cols_type_promo = [col for col in final_features if col.startswith("PARAM_PROMO_")]
+
+
+    if cols_type_promo:
+        # Cas avec plusieurs types promo représentés par des colonnes séparées
+        for col in cols_type_promo:
+            for promo in vec_promo_test:
+                x_future_copy = x_future.copy()
+                # Met la valeur dans la colonne actuelle, les autres restent inchangées
+                x_future_copy[col] = [promo] * nb_jours
+                key_name = f'{col}_POURCENT_{int(promo * 100)}'
+                preds[key_name] = ModelPrediction(model, x_future_copy[final_features])
+    else:
+        # Cas simple avec une seule colonne PARAM_PROMO
+        for promo in vec_promo_test:
+            x_future_copy = x_future.copy()
+            x_future_copy['PARAM_PROMO'] = [promo] * nb_jours
+            preds[f'PROMO_{int(promo * 100)}'] = ModelPrediction(model, x_future_copy[final_features])
+ """
     
     # Convert predictions to the desired format
     preds_converted = {}
@@ -969,7 +1046,7 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     #     Date_Import = current_date
 
 
-    best_model, model, best_error, percentage_accuracy, percentage_accuracy_global, best_param = ModelChoice(final_df, exogenous, target)
+    best_model, model, best_error, percentage_accuracy, percentage_accuracy_global, best_param, mae, rmse = ModelChoice(final_df, exogenous, target)
     bestFeatures = exogenous
     # bestHyperParams = model.get_params()
     # print(f"best type {bestHyperParams}")
@@ -1045,7 +1122,8 @@ def SET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
 
     preds_converted["ACCURACY_GLOBAL"] = percentage_accuracy_global
     preds_converted["ACCURACY"] = percentage_accuracy 
-    preds_converted["MAE_LAST_MONTH"] = None 
+    preds_converted["MAE_LAST_MONTH"] = mae 
+    preds_converted["RMSE_TRAIN"] = rmse 
     preds_converted["ERROR_GLOBAL"] = best_error
     preds_converted["FEATURES_MODEL"] = bestFeatures_str
     preds_converted["PARAM_MODEL"] = bestHyperParams_str

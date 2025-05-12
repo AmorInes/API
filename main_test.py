@@ -48,6 +48,7 @@ def version_GET(Product_parametre_json,Product_features_json, Product_quantity_j
 @app.route('/api/modelbooper/prixpermanent/user', methods=['POST'])
 def receive_data2():
     Product_parametre_json = request.json['LIST_PARAMETRE']
+    #print (type(Product_parametre_json))
     Product_features_json = request.json['LIST_HISTO']
     Product_quantity_json = request.json['LIST_QUANTITE']
     Product_future_features_json = request.json['LIST_FUTURE']
@@ -55,9 +56,12 @@ def receive_data2():
     So_Id_json = request.json.get('ID_SO', 0)
     Product_ID_TARIF = 0
     features_model = request.json["FEATURES_MODEL"]
+    features_model = str(Product_parametre_json)
+    #print(type(features_model))
     parm_model = request.json["PARAM_MODEL"]
     date_import = request.json["DATE_IMPORT"]
     model_name = request.json["MODEL_NAME"]
+
 
 
 
