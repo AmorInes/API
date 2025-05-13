@@ -949,14 +949,14 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     
     x_future['PARAM_PRIX'] = [last_price] * nb_jours 
 
-    # promo classique sans type promo 
+    """ # promo classique sans type promo 
     vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
 
     for promo in vec_promo_test: 
         x_future['PARAM_PROMO'] = [promo] * nb_jours
-        preds[f'PROMO_{int(promo * 100)}'] = ModelPrediction(model, x_future[final_features])
+        preds[f'PROMO_{int(promo * 100)}'] = ModelPrediction(model, x_future[final_features]) """
         
-    """ # Variation des promotions model promo type promo
+    # Variation des promotions model promo type promo
     vec_promo_test = np.arange(0, 0.95, 0.05).tolist()
 
     # Identifier les colonnes correspondant aux types de promotions
@@ -978,7 +978,7 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
             x_future_copy = x_future.copy()
             x_future_copy['PARAM_PROMO'] = [promo] * nb_jours
             preds[f'PROMO_{int(promo * 100)}'] = ModelPrediction(model, x_future_copy[final_features])
- """
+
     
     # Convert predictions to the desired format
     preds_converted = {}
