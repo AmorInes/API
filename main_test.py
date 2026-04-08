@@ -56,7 +56,7 @@ def receive_data2():
     So_Id_json = request.json.get('ID_SO', 0)
     Product_ID_TARIF = 0
     features_model = request.json["FEATURES_MODEL"]
-    features_model = str(Product_parametre_json)
+    #features_model = str(Product_parametre_json)
     #print(type(features_model))
     parm_model = request.json["PARAM_MODEL"]
     date_import = request.json["DATE_IMPORT"]

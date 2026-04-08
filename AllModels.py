@@ -125,7 +125,7 @@ class XGBRegressorInt(xgboost.XGBRegressor):
 def XgBoostRegressor(X_train, y_train,patience=3, tol=1e-4):
    
     #XGBOOSTRegressor hyperparameters :
-    xgb = XGBRegressorInt()
+    xgb = XGBRegressorInt(random_state=42)
     param_grid = { 
                 'objective':['reg:squarederror'],
                 # 'learning_rate' : [0.03,0.05,0.07],
@@ -214,7 +214,7 @@ class LightBMRegressorInt(lightgbm.LGBMRegressor):
 def LightBMRegressor(X_train, y_train,patience=3, tol=1e-4):
     
     #LightGBM hyperparameter 
-    lgb = LightBMRegressorInt()
+    lgb = LightBMRegressorInt(random_state=42)
 
     param_grid = {
                 'num_leaves': [8,16,32,64],  
@@ -358,7 +358,7 @@ def LightBMRegressor(X_train, y_train,patience=3, tol=1e-4):
 
 def GETLightBMRegressor(X_train, y_train, best_hyperparam):
     default_params = {
-        'random_state': None,
+        'random_state': 42,
         'verbose': -1
         # Ajoutez d'autres paramètres par défaut si nécessaire
     }
@@ -374,7 +374,8 @@ def GETLightBMRegressor(X_train, y_train, best_hyperparam):
 
 
 def GETXgboostRegressor(X_train, y_train, best_hyperparam):
-    #LightGBM hyperparameter 
+
+    best_hyperparam['random_state'] = 42
     xgb = XGBRegressorInt(**best_hyperparam)
     model_xgb = xgb.fit(X_train, y_train)
 
@@ -672,6 +673,8 @@ def ModelChoice(final_df, exogenous, target) :
     # # Calcul de MAPE
     # mape = np.mean(np.abs((X_test[target] - y_pred_xgb) / X_test[target])) * 100
     # print("MAPE:", mape)
+
+    #Désactiver pour accélérer les calculs (demande Raid)
     print("LGBM train")
     model_Light, best_params_Light  = LightBMRegressor(X_train[exogenous], X_train[target])
     y_pred_Light = ModelPrediction(model_Light,X_test[exogenous])
@@ -1001,7 +1004,13 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
                 preds_converted[key] = list_dic_values
 
 
-    coefficients = get_feature_importance(model,final_df, target, final_features)
+    #coefficients = get_feature_importance(model,final_df, target, final_features)
+    # X_train, X_test = split_df(final_df)
+    # if model_name == 'xgboost':
+    #     model_elast = GETXgboostRegressor(X_train[final_features], X_train[target], dic_parm_model)
+    # elif model_name == 'lightgbm':
+    #     model_elast = GETLightBMRegressor(X_train[final_features], X_train[target], dic_parm_model)
+    # coefficients = get_feature_importance(model_elast, final_df, target, final_features)
 
 
 
@@ -1018,7 +1027,7 @@ def GET_process_product_Version(x_future, final_df, target, nb_jours, exogenous,
     # # preds_converted['COM_ERROR']= com_error
     # preds_converted['MODEL']=best_model
 
-    preds_converted['ELASTICITE'] = coefficients
+    #preds_converted['ELASTICITE'] = coefficients
     preds_converted['PRIX_INTERVAL'] = vec_prix_test
     preds_converted['OK'] = str(1)
 
