@@ -19,9 +19,10 @@ warnings.filterwarnings("ignore", message="No further splits with positive gain,
 warnings.filterwarnings("ignore", category=FutureWarning, module='xgboost.core')
 warnings.filterwarnings("ignore", category=FutureWarning, module="dask.dataframe")
 
-NB_PRIX = 5
+
 n_jobs = -1
-VEC_PRIX_FACTORS = [0.80, 0.90, 1.00, 1.10, 1.20]
+NB_PRIX = 6
+
 
 # Seuils segmentation 
 ADI_SEUIL = 1.32
@@ -329,7 +330,7 @@ def compute_elasticites(final_df, target, exogenous, model):
             result[feat] = 0.0
             continue
 
-        # BINAIRES 0/1 
+        # BINAIRES 0/1
         if feat in BINAIRES or feat.startswith('PARAM_JS_'):
             mask_0 = df[feat] == 0
             if mask_0.sum() < 10:
@@ -342,7 +343,7 @@ def compute_elasticites(final_df, target, exogenous, model):
             Q_1 = model.predict(df_1[exogenous]).sum()
             e   = (Q_1 - Q_0) / max(Q_0, 1.0)
 
-        # ORDINAUX 
+        # ORDINAUX
         elif feat in ORDINAUX:
             vals    = sorted(df[feat].unique())
             impacts = [float(model.predict(df.assign(**{feat: v})[exogenous]).sum())
@@ -351,51 +352,49 @@ def compute_elasticites(final_df, target, exogenous, model):
             q_high = np.percentile(impacts, 75)
             e      = (q_high - q_med) / max(q_med, 1.0)
 
-        # PRIX : multi-chocs [-1%, -5%, -10%] 
+        # PRIX : plage réelle observée
         elif feat == 'PARAM_PRIX':
-            shocks        = [-0.01, -0.05, -0.10]
-            elasticities  = []
-            for shock in shocks:
+            p_min = float(df[feat].quantile(0.10))
+            p_max = float(df[feat].quantile(0.90))
+            if (p_max - p_min) / max(p_min, 1e-6) < 0.10:
+                result[feat] = 0.0
+                continue
+            niveaux_prix = np.linspace(p_min, p_max, 5)
+            elasticities = []
+            for p in niveaux_prix[1:]:
                 df_p       = df.copy()
-                df_p[feat] = df_p[feat] * (1 + shock)
-                Q_p        = model.predict(df_p[exogenous]).sum()
+                df_p[feat] = p
+                Q_p        = float(model.predict(df_p[exogenous]).sum())
                 dQ         = (Q_p - Q_sum) / Q_sum
-                elasticities.append(dQ / shock)
+                dp         = (p - float(df[feat].mean())) / max(float(df[feat].mean()), 1e-6)
+                if abs(dp) > 1e-6:
+                    elasticities.append(dQ / dp)
+            if not elasticities:
+                result[feat] = 0.0
+                continue
             e = min(float(np.median(elasticities)), 0.0)
 
-        # PROMO continue [0,1] : profondeur remise 
-        # PARAM_PROMO = 0.20 → remise de 20%
-        # Interprétation : e=1.5 → remise 20% → (1.5 × 20%) +30% ventes 
+        # PROMO continue [0,1]
         elif 'PARAM_PROMO' in feat:
             mask_promo = df[feat] > 0
             mask_sans  = df[feat] == 0
             nb_promo   = int(mask_promo.sum())
             nb_sans    = int(mask_sans.sum())
-
             if nb_promo < 5:
                 result[feat] = 0.0
                 continue
-
             q_avec_jour = float(final_df[mask_promo][target].mean())
             q_sans_jour = float(final_df[mask_sans][target].mean()) if nb_sans > 0 else 0.0
-
-            # Cas prioritaire : produit vendu UNIQUEMENT en promo
             if q_sans_jour < 0.01 and q_avec_jour > 0.0:
                 result[feat] = 1.0
                 continue
-
-            # Garde empirique 15% : pas d'effet promo actionnable
             ratio_emp = abs(q_avec_jour - q_sans_jour) / max(q_sans_jour, 0.01)
             if ratio_emp < 0.15:
                 result[feat] = 0.0
                 continue
-
-            # Référence : tout le df sans promo
-            df_ref = df.copy()
+            df_ref       = df.copy()
             df_ref[feat] = 0.0
-            Q_ref = float(model.predict(df_ref[exogenous]).sum())
-
-            # Multi-niveaux de profondeur → médiane des élasticités par niveau
+            Q_ref        = float(model.predict(df_ref[exogenous]).sum())
             promo_levels = [0.10, 0.20, 0.30, 0.40, 0.50]
             elasticities = []
             for level in promo_levels:
@@ -403,32 +402,40 @@ def compute_elasticites(final_df, target, exogenous, model):
                 df_p[feat] = level
                 Q_p        = float(model.predict(df_p[exogenous]).sum())
                 dQ         = (Q_p - Q_ref) / max(Q_ref, 1.0)
-                elasticities.append(dQ / level)   
-
+                elasticities.append(dQ)          # ← WAS: dQ / level
             e = max(float(np.median(elasticities)), 0.0)
-
-            # Garde modèle 5% : filtre le bruit
             if e < 0.05:
                 result[feat] = 0.0
                 continue
 
-        # CONCURRENT : cross-élasticité prix
+
+        # CONCURRENT : cross-élasticité — plage réelle observée
         elif 'PARAM_CONC' in feat:
             feat_mean = float(df[feat].mean())
             if abs(feat_mean) < 1e-6:
                 result[feat] = 0.0
                 continue
-            shocks       = [0.01, 0.05, 0.10]
+            p_min = float(df[feat].quantile(0.10))
+            p_max = float(df[feat].quantile(0.90))
+            if (p_max - p_min) / max(p_min, 1e-6) < 0.10:
+                result[feat] = 0.0
+                continue
+            niveaux_conc = np.linspace(p_min, p_max, 5)
             elasticities = []
-            for shock in shocks:
+            for p in niveaux_conc[1:]:
                 df_p       = df.copy()
-                df_p[feat] = df_p[feat] * (1 + shock)
-                Q_p        = model.predict(df_p[exogenous]).sum()
+                df_p[feat] = p
+                Q_p        = float(model.predict(df_p[exogenous]).sum())
                 dQ         = (Q_p - Q_sum) / Q_sum
-                elasticities.append(dQ / shock)
+                dp         = (p - feat_mean) / max(feat_mean, 1e-6)
+                if abs(dp) > 1e-6:
+                    elasticities.append(dQ / dp)
+            if not elasticities:
+                result[feat] = 0.0
+                continue
             e = max(float(np.median(elasticities)), 0.0)
 
-        # CONTINUS : multi-chocs [+1%, +5%] 
+        # CONTINUS : multi-chocs [+1%, +5%]
         else:
             feat_mean = float(df[feat].mean())
             if abs(feat_mean) < 1e-6:
@@ -604,8 +611,11 @@ def process_data(Product_parametre_json, Product_features_json,
 # prédictions prix & promo (SET / GET )
 def _predict_prix_promo(model, x_future, nb_jours, features, last_price):
     preds         = {}
-    vec_prix_test = [last_price * f for f in VEC_PRIX_FACTORS]
-
+    #Fourchette 20% changé aussi dans PARAM_INERVAL_PRIX table ADMIN_MODEL
+    prix_min = last_price * 0.80   
+    prix_max = last_price * 1.20   
+    vec_prix_test = [prix_min + i * (prix_max - prix_min) / (NB_PRIX - 1) for i in range(1, NB_PRIX)]
+   
     for cpt, prix in enumerate(vec_prix_test, start=1):
         x_future['PARAM_PRIX'] = [prix] * nb_jours
         preds[f'PRIX_{cpt}']   = ModelPrediction(model, x_future[features])
